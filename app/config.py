@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     SUPABASE_URL: str
     SUPABASE_KEY: str
     SUPABASE_SERVICE_KEY: str
+    DATABASE_URL: str | None = None  # Direct PostgreSQL connection string (optional)
 
     # AI API Keys
     OPENAI_API_KEY: str | None = None

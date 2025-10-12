@@ -60,6 +60,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         log_level=settings.LOG_LEVEL,
     )
 
+    # Initialize database pool for nutrition features
+    try:
+        from app.db import init_db_pool
+        await init_db_pool()
+    except Exception as e:
+        logger.warning("database_pool_initialization_skipped", error=str(e))
+        # Continue without pool - nutrition features will use Supabase client
+
     # Initialize Sentry if configured (only in production)
     if settings.SENTRY_DSN and not settings.is_development:
         try:
@@ -97,6 +105,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # Shutdown
     logger.info("application_shutdown")
+
+    # Close database pool
+    try:
+        from app.db import close_db_pool
+        await close_db_pool()
+    except Exception as e:
+        logger.warning("database_pool_close_error", error=str(e))
 
 
 # Create FastAPI app
@@ -170,16 +185,17 @@ async def root():
 
 
 # Import and include routers
-from app.api.v1 import health, auth, users, onboarding
+from app.api.v1 import health, auth, users, onboarding, foods, meals
 
 app.include_router(health.router, prefix="/api/v1", tags=["Health"])
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentication"])
 app.include_router(users.router, prefix="/api/v1/users", tags=["Users"])
 app.include_router(onboarding.router, prefix="/api/v1/onboarding", tags=["Onboarding"])
+app.include_router(foods.router, prefix="/api/v1", tags=["Nutrition - Foods"])
+app.include_router(meals.router, prefix="/api/v1", tags=["Nutrition - Meals"])
 
 # Future routers will be added here:
-# from app.api.v1 import nutrition, activities, coach
-# app.include_router(nutrition.router, prefix="/api/v1", tags=["Nutrition"])
+# from app.api.v1 import activities, coach
 # app.include_router(activities.router, prefix="/api/v1", tags=["Activities"])
 # app.include_router(coach.router, prefix="/api/v1", tags=["AI Coach"])
 
