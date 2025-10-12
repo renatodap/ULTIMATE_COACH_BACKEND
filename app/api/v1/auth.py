@@ -8,6 +8,7 @@ import structlog
 from fastapi import APIRouter, HTTPException, status, Response
 from fastapi.responses import JSONResponse
 
+from app.config import settings
 from app.models.auth import (
     SignupRequest,
     LoginRequest,
@@ -29,7 +30,7 @@ def set_auth_cookies(response: Response, access_token: str, refresh_token: str):
         key="access_token",
         value=access_token,
         httponly=True,
-        secure=True,  # HTTPS only in production
+        secure=not settings.is_development,  # False in development (allows HTTP)
         samesite="lax",
         max_age=60 * 60 * 24 * 7,  # 7 days
     )
@@ -39,7 +40,7 @@ def set_auth_cookies(response: Response, access_token: str, refresh_token: str):
         key="refresh_token",
         value=refresh_token,
         httponly=True,
-        secure=True,
+        secure=not settings.is_development,  # False in development (allows HTTP)
         samesite="lax",
         max_age=60 * 60 * 24 * 30,  # 30 days
     )
