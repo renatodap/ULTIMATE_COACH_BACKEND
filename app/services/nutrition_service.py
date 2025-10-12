@@ -329,7 +329,7 @@ class NutritionService:
                 if not food.is_public and food.created_by != user_id:
                     continue  # Skip inaccessible foods
 
-                foods_map[UUID(food.id)] = food
+                foods_map[food.id] = food  # food.id is already UUID
             # === End N+1 fix ===
 
             # Validate and calculate totals
