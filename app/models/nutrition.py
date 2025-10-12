@@ -8,10 +8,10 @@ meal_items track both user input and calculated values.
 
 from datetime import datetime
 from decimal import Decimal
-from typing import List, Optional
+from typing import List, Optional, Any
 from uuid import UUID
 
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, field_serializer
 
 
 # =====================================================
@@ -38,6 +38,11 @@ class FoodServing(BaseModel):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+    @field_serializer('serving_size', 'grams_per_serving')
+    def serialize_decimal(self, value: Decimal) -> float:
+        """Convert Decimal to float for JSON serialization."""
+        return float(value)
 
 
 class Food(BaseModel):
@@ -79,6 +84,14 @@ class Food(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+    @field_serializer(
+        'calories_per_100g', 'protein_g_per_100g', 'carbs_g_per_100g', 'fat_g_per_100g',
+        'fiber_g_per_100g', 'sugar_g_per_100g', 'sodium_mg_per_100g'
+    )
+    def serialize_decimal(self, value: Optional[Decimal]) -> Optional[float]:
+        """Convert Decimal to float for JSON serialization."""
+        return float(value) if value is not None else None
+
 
 class FoodSearchResponse(BaseModel):
     """Response for food search endpoint."""
@@ -92,6 +105,8 @@ class CreateCustomFoodRequest(BaseModel):
 
     User provides nutrition for their specific serving, system converts
     to per-100g for storage.
+
+    IMPORTANT: grams_per_serving is NOW REQUIRED to avoid estimation errors.
     """
     name: str = Field(min_length=1, max_length=200)
     brand_name: Optional[str] = Field(None, max_length=200)
@@ -99,6 +114,7 @@ class CreateCustomFoodRequest(BaseModel):
     # Serving definition
     serving_size: Decimal = Field(gt=0, description="Amount (e.g., 1)")
     serving_unit: str = Field(min_length=1, max_length=50, description="Unit (e.g., 'serving', 'piece')")
+    grams_per_serving: Decimal = Field(gt=0, description="Grams for this serving (e.g., 25g for 1 cookie)")
 
     # Nutrition for this serving (will be converted to per-100g)
     calories: Decimal = Field(ge=0)
@@ -149,6 +165,11 @@ class MealItem(BaseModel):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+    @field_serializer('quantity', 'grams', 'calories', 'protein_g', 'carbs_g', 'fat_g')
+    def serialize_decimal(self, value: Decimal) -> float:
+        """Convert Decimal to float for JSON serialization."""
+        return float(value)
 
 
 class CreateMealRequest(BaseModel):
@@ -205,6 +226,11 @@ class Meal(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+    @field_serializer('total_calories', 'total_protein_g', 'total_carbs_g', 'total_fat_g', 'ai_confidence', 'ai_cost_usd')
+    def serialize_decimal(self, value: Optional[Decimal]) -> Optional[float]:
+        """Convert Decimal to float for JSON serialization."""
+        return float(value) if value is not None else None
+
 
 class MealListResponse(BaseModel):
     """Response for meal list endpoint."""
@@ -241,3 +267,8 @@ class NutritionStats(BaseModel):
     meals_by_type: dict = Field(default_factory=dict, description="Count by meal_type")
 
     model_config = ConfigDict(from_attributes=True)
+
+    @field_serializer('calories_consumed', 'protein_consumed', 'carbs_consumed', 'fat_consumed')
+    def serialize_decimal(self, value: Decimal) -> float:
+        """Convert Decimal to float for JSON serialization."""
+        return float(value)

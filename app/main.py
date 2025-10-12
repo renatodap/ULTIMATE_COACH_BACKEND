@@ -60,14 +60,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         log_level=settings.LOG_LEVEL,
     )
 
-    # Initialize database pool for nutrition features
-    try:
-        from app.db import init_db_pool
-        await init_db_pool()
-    except Exception as e:
-        logger.warning("database_pool_initialization_skipped", error=str(e))
-        # Continue without pool - nutrition features will use Supabase client
-
     # Initialize Sentry if configured (only in production)
     if settings.SENTRY_DSN and not settings.is_development:
         try:
@@ -105,13 +97,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # Shutdown
     logger.info("application_shutdown")
-
-    # Close database pool
-    try:
-        from app.db import close_db_pool
-        await close_db_pool()
-    except Exception as e:
-        logger.warning("database_pool_close_error", error=str(e))
 
 
 # Create FastAPI app

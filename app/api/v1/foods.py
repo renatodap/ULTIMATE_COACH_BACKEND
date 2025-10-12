@@ -227,6 +227,7 @@ async def create_custom_food(
             brand_name=request.brand_name,
             serving_size=request.serving_size,
             serving_unit=request.serving_unit,
+            grams_per_serving=request.grams_per_serving,
             calories=request.calories,
             protein_g=request.protein_g,
             carbs_g=request.carbs_g,
