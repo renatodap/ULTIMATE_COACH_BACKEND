@@ -1,14 +1,19 @@
 """
-Nutrition Service (Refactored v2.0)
+Nutrition Service (Refactored v2.1)
 
 Handles business logic for foods, food servings, meals, and meal items.
 Uses Supabase client consistently for all database operations.
+
+Changes in v2.1:
+- Added structured error codes for i18n support
+- Fixed N+1 query issue in create_meal (now batches food fetching)
+- Improved error messages with detailed context
 """
 
 import structlog
 from datetime import datetime
 from decimal import Decimal
-from typing import List, Optional
+from typing import List, Optional, Dict
 from uuid import UUID
 
 from app.services.supabase_service import supabase_service
@@ -19,6 +24,17 @@ from app.models.nutrition import (
     MealItem,
     MealItemBase,
     NutritionStats,
+)
+from app.models.errors import (
+    SearchQueryTooShortError,
+    SearchFailedError,
+    FoodNotFoundError,
+    InvalidServingError,
+    ServingMismatchError,
+    MealEmptyError,
+    MealCreationFailedError,
+    InvalidGramsPerServingError,
+    CustomFoodCreationFailedError,
 )
 
 logger = structlog.get_logger()
@@ -42,9 +58,13 @@ class NutritionService:
 
         Returns public foods + user's custom foods.
         Minimum 2 characters required.
+
+        Raises:
+            SearchQueryTooShortError: If query < 2 characters
+            SearchFailedError: If database query fails
         """
         if len(query) < 2:
-            return []
+            raise SearchQueryTooShortError(query)
 
         try:
             # Search public foods
@@ -88,9 +108,11 @@ class NutritionService:
 
             return foods[:limit]  # Limit total results
 
+        except SearchQueryTooShortError:
+            raise
         except Exception as e:
             logger.error("search_foods_error", query=query, error=str(e))
-            raise
+            raise SearchFailedError(query, original_error=str(e))
 
     async def get_food(
         self,
@@ -172,7 +194,7 @@ class NutritionService:
         """
         # Validate grams_per_serving
         if grams_per_serving <= 0:
-            raise ValueError("grams_per_serving must be positive")
+            raise InvalidGramsPerServingError(float(grams_per_serving))
 
         # Convert nutrition to per-100g (CORRECT formula)
         calories_per_100g = (calories / grams_per_serving) * Decimal("100")
@@ -205,7 +227,7 @@ class NutritionService:
             )
 
             if not food_response.data:
-                raise ValueError("Failed to create custom food")
+                raise CustomFoodCreationFailedError(name, "Database insert returned no data")
 
             food_row = food_response.data[0]
             food_id = food_row["id"]
@@ -227,7 +249,7 @@ class NutritionService:
             )
 
             if not serving_response.data:
-                raise ValueError("Failed to create food serving")
+                raise CustomFoodCreationFailedError(name, "Failed to create serving size")
 
             # Build food object
             food = Food(**food_row)
@@ -242,9 +264,11 @@ class NutritionService:
 
             return food
 
+        except (InvalidGramsPerServingError, CustomFoodCreationFailedError):
+            raise
         except Exception as e:
             logger.error("create_custom_food_error", name=name, error=str(e))
-            raise
+            raise CustomFoodCreationFailedError(name, str(e))
 
     # =====================================================
     # Meals
@@ -266,14 +290,48 @@ class NutritionService:
 
         Calculates nutrition totals from items.
         VALIDATES: serving_id belongs to food_id.
+
+        PERFORMANCE: Batches all food fetches in a single query (fixes N+1 issue).
+
+        Raises:
+            MealEmptyError: If items list is empty
+            FoodNotFoundError: If any food_id is not found or inaccessible
+            InvalidServingError: If any serving_id is not found
+            ServingMismatchError: If serving doesn't belong to food
+            MealCreationFailedError: If database operations fail
         """
         if not items:
-            raise ValueError("Meal must have at least one item")
+            raise MealEmptyError()
 
         if not logged_at:
             logged_at = datetime.utcnow()
 
         try:
+            # === FIX N+1 QUERY: Batch fetch all foods at once ===
+            food_ids = list(set(item.food_id for item in items))  # Deduplicate
+
+            # Single query for all foods
+            foods_query = (
+                supabase_service.client.table("foods")
+                .select("*, food_servings(*)")
+                .in_("id", [str(fid) for fid in food_ids])
+                .execute()
+            )
+
+            # Build foods map for O(1) lookup
+            foods_map: Dict[UUID, Food] = {}
+            for row in foods_query.data:
+                servings_data = row.pop("food_servings", [])
+                food = Food(**row)
+                food.servings = [FoodServing(**s) for s in servings_data]
+
+                # Check user access
+                if not food.is_public and food.created_by != user_id:
+                    continue  # Skip inaccessible foods
+
+                foods_map[UUID(food.id)] = food
+            # === End N+1 fix ===
+
             # Validate and calculate totals
             total_calories = Decimal("0")
             total_protein = Decimal("0")
@@ -283,24 +341,24 @@ class NutritionService:
             validated_items = []
 
             for idx, item in enumerate(items):
-                # Get food with servings
-                food = await self.get_food(item.food_id, user_id)
+                # Get food from map (O(1) lookup, not O(n) query!)
+                food = foods_map.get(item.food_id)
                 if not food:
-                    raise ValueError(f"Food {item.food_id} not found or inaccessible")
+                    raise FoodNotFoundError(str(item.food_id))
 
                 # Find serving
                 serving = next(
                     (s for s in food.servings if s.id == item.serving_id), None
                 )
                 if not serving:
-                    raise ValueError(
-                        f"Serving {item.serving_id} not found for food {item.food_id}"
-                    )
+                    raise InvalidServingError(str(item.serving_id), str(item.food_id))
 
                 # Validate serving belongs to food
                 if serving.food_id != item.food_id:
-                    raise ValueError(
-                        f"Serving {item.serving_id} does not belong to food {item.food_id}"
+                    raise ServingMismatchError(
+                        str(item.serving_id),
+                        str(item.food_id),
+                        str(serving.food_id),
                     )
 
                 # Calculate nutrition
@@ -351,7 +409,7 @@ class NutritionService:
             )
 
             if not meal_response.data:
-                raise ValueError("Failed to create meal")
+                raise MealCreationFailedError("Database insert returned no data")
 
             meal_row = meal_response.data[0]
             meal_id = meal_row["id"]
@@ -383,7 +441,7 @@ class NutritionService:
             )
 
             if not items_response.data:
-                raise ValueError("Failed to create meal items")
+                raise MealCreationFailedError("Failed to create meal items")
 
             # Build meal object
             meal = Meal(**meal_row)
@@ -400,11 +458,11 @@ class NutritionService:
 
             return meal
 
-        except ValueError:
+        except (MealEmptyError, FoodNotFoundError, InvalidServingError, ServingMismatchError, MealCreationFailedError):
             raise
         except Exception as e:
             logger.error("create_meal_error", user_id=str(user_id), error=str(e))
-            raise
+            raise MealCreationFailedError(str(e))
 
     async def get_user_meals(
         self,

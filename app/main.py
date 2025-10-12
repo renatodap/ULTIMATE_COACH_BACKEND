@@ -156,6 +156,35 @@ async def global_exception_handler(request, exc):
     )
 
 
+# Nutrition-specific error handler
+from app.models.errors import NutritionError
+
+
+@app.exception_handler(NutritionError)
+async def nutrition_error_handler(request, exc: NutritionError):
+    """
+    Handler for nutrition-related errors with i18n error codes.
+
+    Returns structured error response with:
+    - error: Error code for frontend translation (e.g., "NUTRITION_101")
+    - message: English message for debugging
+    - details: Additional context (food_id, serving_id, etc.)
+    """
+    logger.warning(
+        "nutrition_error",
+        error_code=exc.code,
+        message=exc.message,
+        details=exc.details,
+        path=request.url.path,
+        method=request.method,
+    )
+
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=exc.to_dict(),
+    )
+
+
 # Root endpoint
 @app.get("/")
 async def root():
