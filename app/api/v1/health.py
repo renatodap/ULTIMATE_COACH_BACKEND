@@ -12,6 +12,7 @@ from fastapi import APIRouter, status
 from pydantic import BaseModel
 
 from app.config import settings
+from app.services.supabase_service import supabase_service
 
 logger = structlog.get_logger()
 
@@ -50,11 +51,14 @@ async def health_check() -> HealthResponse:
     checks: Dict[str, str] = {}
     overall_status = "healthy"
 
-    # Database check (to be implemented)
+    # Database check
     try:
-        # from app.services.supabase_service import supabase_client
-        # await supabase_client.test_connection()
-        checks["database"] = "pass"
+        db_health = await supabase_service.health_check()
+        if db_health["connected"]:
+            checks["database"] = "pass"
+        else:
+            checks["database"] = "fail"
+            overall_status = "unhealthy"
     except Exception as e:
         logger.error("database_health_check_failed", error=str(e))
         checks["database"] = "fail"

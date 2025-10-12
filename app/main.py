@@ -138,13 +138,15 @@ async def root():
 
 
 # Import and include routers
-from app.api.v1 import health
+from app.api.v1 import health, auth, users, onboarding
 
 app.include_router(health.router, prefix="/api/v1", tags=["Health"])
+app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentication"])
+app.include_router(users.router, prefix="/api/v1/users", tags=["Users"])
+app.include_router(onboarding.router, prefix="/api/v1/onboarding", tags=["Onboarding"])
 
 # Future routers will be added here:
-# from app.api.v1 import auth, nutrition, activities, coach
-# app.include_router(auth.router, prefix="/api/v1", tags=["Authentication"])
+# from app.api.v1 import nutrition, activities, coach
 # app.include_router(nutrition.router, prefix="/api/v1", tags=["Nutrition"])
 # app.include_router(activities.router, prefix="/api/v1", tags=["Activities"])
 # app.include_router(coach.router, prefix="/api/v1", tags=["AI Coach"])
