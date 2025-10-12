@@ -60,15 +60,34 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         log_level=settings.LOG_LEVEL,
     )
 
-    # Initialize Sentry if configured
-    if settings.SENTRY_DSN:
-        import sentry_sdk
-        sentry_sdk.init(
-            dsn=settings.SENTRY_DSN,
-            environment=settings.ENVIRONMENT,
-            traces_sample_rate=1.0 if settings.is_development else 0.1,
-        )
-        logger.info("sentry_initialized")
+    # Initialize Sentry if configured (only in production)
+    if settings.SENTRY_DSN and not settings.is_development:
+        try:
+            import sentry_sdk
+            from sentry_sdk.integrations.fastapi import FastApiIntegration
+            from sentry_sdk.integrations.starlette import StarletteIntegration
+
+            sentry_sdk.init(
+                dsn=settings.SENTRY_DSN,
+                environment=settings.ENVIRONMENT,
+                traces_sample_rate=0.1,
+
+                # Enable FastAPI and Starlette integrations
+                integrations=[
+                    FastApiIntegration(transaction_style="url"),
+                    StarletteIntegration(transaction_style="url"),
+                ],
+
+                # Tag all events
+                before_send=lambda event, hint: {
+                    **event,
+                    "tags": {**(event.get("tags") or {}), "app": "sharpened-backend"},
+                },
+            )
+            logger.info("sentry_initialized", environment=settings.ENVIRONMENT)
+        except Exception as e:
+            logger.warning("sentry_initialization_failed", error=str(e))
+            # Continue without Sentry - don't break the app
 
     yield
 
@@ -87,12 +106,21 @@ app = FastAPI(
 )
 
 # CORS middleware
+# Log CORS configuration for debugging
+logger.info(
+    "cors_configuration",
+    allow_all_origins=settings.ALLOW_ALL_ORIGINS,
+    cors_origins=settings.cors_origins_list,
+    environment=settings.ENVIRONMENT,
+)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 
