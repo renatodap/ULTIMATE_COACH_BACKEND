@@ -259,13 +259,13 @@ async def complete_onboarding(
 
         log_event(
             "onboarding_error",
+            level="error",
             user_id=str(user_id),
             error=str(e),
             error_type=type(e).__name__,
             primary_goal=data.primary_goal,
             activity_level=data.activity_level,
-            traceback=traceback.format_exc(),
-            exc_info=True
+            traceback_info=traceback.format_exc()
         )
 
         # In development, return detailed error message
