@@ -24,14 +24,16 @@ router = APIRouter()
 
 
 def set_auth_cookies(response: Response, access_token: str, refresh_token: str):
-    """Set secure httpOnly cookies for authentication tokens."""
+    """Set secure httpOnly cookies for authentication tokens with cross-origin support."""
     # Access token (7 days)
     response.set_cookie(
         key="access_token",
         value=access_token,
         httponly=True,
         secure=not settings.is_development,  # False in development (allows HTTP)
-        samesite="lax",
+        samesite="none" if not settings.is_development else "lax",  # "none" requires secure=True in production
+        path="/",  # Available across entire domain
+        domain="localhost" if settings.is_development else None,  # Share across localhost ports in dev
         max_age=60 * 60 * 24 * 7,  # 7 days
     )
 
@@ -41,7 +43,9 @@ def set_auth_cookies(response: Response, access_token: str, refresh_token: str):
         value=refresh_token,
         httponly=True,
         secure=not settings.is_development,  # False in development (allows HTTP)
-        samesite="lax",
+        samesite="none" if not settings.is_development else "lax",  # "none" requires secure=True in production
+        path="/",  # Available across entire domain
+        domain="localhost" if settings.is_development else None,  # Share across localhost ports in dev
         max_age=60 * 60 * 24 * 30,  # 30 days
     )
 
