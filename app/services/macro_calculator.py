@@ -13,11 +13,11 @@ References:
 - Academy of Nutrition and Dietetics - TDEE multipliers
 """
 
-import logging
+import structlog
 from typing import Dict, Literal
 from pydantic import BaseModel, Field
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 # ============================================================================
 # CONSTANTS
