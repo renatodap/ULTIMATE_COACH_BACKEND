@@ -9,12 +9,12 @@ Handles comprehensive user onboarding flow including:
 """
 
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Literal, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 
 from app.api.dependencies import get_current_user
 from app.config import settings
@@ -33,24 +33,33 @@ class OnboardingData(BaseModel):
     """Complete onboarding data from all 6 steps."""
 
     # Step 1: Goals & Experience
-    primary_goal: str = Field(..., description="lose_weight, build_muscle, maintain, improve_performance")
-    experience_level: str = Field(..., description="beginner, intermediate, advanced")
+    primary_goal: Literal['lose_weight', 'build_muscle', 'maintain', 'improve_performance'] = Field(
+        ...,
+        description="Primary fitness goal"
+    )
+    experience_level: Literal['beginner', 'intermediate', 'advanced'] = Field(
+        ...,
+        description="Fitness experience level"
+    )
     workout_frequency: int = Field(..., ge=0, le=7, description="Workouts per week")
 
     # Step 2: Physical Stats (ALWAYS IN METRIC - frontend converts if needed)
     age: int = Field(..., ge=13, le=120)
-    biological_sex: str = Field(..., description="male or female")
+    biological_sex: Literal['male', 'female'] = Field(..., description="Biological sex for BMR calculation")
     height_cm: float = Field(..., ge=100, le=300)
     current_weight_kg: float = Field(..., ge=30, le=300)
     goal_weight_kg: float = Field(..., ge=30, le=300)
 
     # Step 3: Activity Level
-    activity_level: str = Field(..., description="sedentary, lightly_active, moderately_active, very_active, extremely_active")
+    activity_level: Literal['sedentary', 'lightly_active', 'moderately_active', 'very_active', 'extremely_active'] = Field(
+        ...,
+        description="Daily activity level"
+    )
 
     # Step 4: Dietary Profile
-    dietary_preference: str = Field(
+    dietary_preference: Literal['none', 'vegetarian', 'vegan', 'pescatarian', 'keto', 'paleo'] = Field(
         default="none",
-        description="none, vegetarian, vegan, pescatarian, keto, paleo"
+        description="Dietary preference or restriction"
     )
     food_allergies: List[str] = Field(default_factory=list)
     foods_to_avoid: List[str] = Field(default_factory=list)
@@ -58,67 +67,25 @@ class OnboardingData(BaseModel):
 
     # Step 5: Lifestyle
     sleep_hours: float = Field(..., ge=4, le=12)
-    stress_level: str = Field(default="medium", description="low, medium, high")
+    stress_level: Literal['low', 'medium', 'high'] = Field(
+        default="medium",
+        description="Daily stress level"
+    )
     cooks_regularly: bool = Field(default=True)
 
     # User Preferences
-    unit_system: str = Field(default="imperial", description="metric or imperial")
+    unit_system: Literal['metric', 'imperial'] = Field(
+        default="imperial",
+        description="Preferred measurement system"
+    )
     timezone: str = Field(default="America/New_York")
 
-    @validator('primary_goal')
-    def validate_primary_goal(cls, v):
-        valid = ['lose_weight', 'build_muscle', 'maintain', 'improve_performance']
-        if v not in valid:
-            raise ValueError(f'primary_goal must be one of: {valid}')
-        return v
-
-    @validator('experience_level')
-    def validate_experience_level(cls, v):
-        valid = ['beginner', 'intermediate', 'advanced']
-        if v not in valid:
-            raise ValueError(f'experience_level must be one of: {valid}')
-        return v
-
-    @validator('biological_sex')
-    def validate_biological_sex(cls, v):
-        valid = ['male', 'female']
-        if v not in valid:
-            raise ValueError(f'biological_sex must be one of: {valid}')
-        return v
-
-    @validator('activity_level')
-    def validate_activity_level(cls, v):
-        valid = ['sedentary', 'lightly_active', 'moderately_active', 'very_active', 'extremely_active']
-        if v not in valid:
-            raise ValueError(f'activity_level must be one of: {valid}')
-        return v
-
-    @validator('dietary_preference')
-    def validate_dietary_preference(cls, v):
-        valid = ['none', 'vegetarian', 'vegan', 'pescatarian', 'keto', 'paleo']
-        if v not in valid:
-            raise ValueError(f'dietary_preference must be one of: {valid}')
-        return v
-
-    @validator('stress_level')
-    def validate_stress_level(cls, v):
-        valid = ['low', 'medium', 'high']
-        if v not in valid:
-            raise ValueError(f'stress_level must be one of: {valid}')
-        return v
-
-    @validator('unit_system')
-    def validate_unit_system(cls, v):
-        valid = ['metric', 'imperial']
-        if v not in valid:
-            raise ValueError(f'unit_system must be one of: {valid}')
-        return v
-
-    @validator('goal_weight_kg')
-    def validate_goal_weight(cls, v, values):
+    @field_validator('goal_weight_kg')
+    @classmethod
+    def validate_goal_weight(cls, v: float, info) -> float:
         """Ensure goal weight is reasonable relative to current weight."""
-        if 'current_weight_kg' in values:
-            current = values['current_weight_kg']
+        if 'current_weight_kg' in info.data:
+            current = info.data['current_weight_kg']
             # Goal can't be more than 50% different from current (safety check)
             if abs(v - current) > current * 0.5:
                 raise ValueError('goal_weight_kg must be within 50% of current_weight_kg')
@@ -272,18 +239,43 @@ async def complete_onboarding(
         )
 
     except ValueError as e:
-        log_event("onboarding_validation_error", user_id=str(user_id), error=str(e))
+        log_event(
+            "onboarding_validation_error",
+            user_id=str(user_id),
+            error=str(e),
+            error_type="ValueError",
+            primary_goal=data.primary_goal,
+            activity_level=data.activity_level
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid input: {str(e)}"
         )
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is (from update_profile, etc.)
+        raise
     except Exception as e:
-        log_event("onboarding_error", user_id=str(user_id), error=str(e), exc_info=True)
+        import traceback
+
+        log_event(
+            "onboarding_error",
+            user_id=str(user_id),
+            error=str(e),
+            error_type=type(e).__name__,
+            primary_goal=data.primary_goal,
+            activity_level=data.activity_level,
+            traceback=traceback.format_exc(),
+            exc_info=True
+        )
 
         # In development, return detailed error message
         if settings.is_development:
-            import traceback
-            detail = f"Failed to complete onboarding: {str(e)}\n{traceback.format_exc()}"
+            detail = {
+                "error": str(e),
+                "error_type": type(e).__name__,
+                "user_id": str(user_id),
+                "traceback": traceback.format_exc()
+            }
         else:
             detail = "Failed to complete onboarding. Please try again."
 

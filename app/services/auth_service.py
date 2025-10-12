@@ -150,10 +150,20 @@ class AuthService:
             user_response = supabase_service.client.auth.get_user(access_token)
 
             if not user_response.user:
+                logger.warning("Token validation failed: No user in response")
                 return None
 
             user_id = UUID(user_response.user.id)
             profile = await supabase_service.get_profile(user_id)
+
+            if not profile:
+                logger.warning(
+                    f"User {user_id} authenticated but profile not found",
+                    extra={
+                        "user_id": str(user_id),
+                        "email": user_response.user.email
+                    }
+                )
 
             return {
                 "id": str(user_id),
@@ -163,7 +173,15 @@ class AuthService:
             }
 
         except Exception as e:
-            logger.error(f"Token validation failed: {e}")
+            logger.error(
+                "Token validation failed",
+                extra={
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "token_prefix": access_token[:20] if access_token else None
+                },
+                exc_info=True
+            )
             return None
 
     async def refresh_session(self, refresh_token: str) -> Dict[str, Any]:

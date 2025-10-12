@@ -100,9 +100,23 @@ class SupabaseService:
                 .single()
                 .execute()
             )
+
+            if response.data:
+                logger.debug(f"Successfully retrieved profile for user {user_id}")
+            else:
+                logger.warning(f"No profile found for user {user_id}")
+
             return response.data
         except Exception as e:
-            logger.error(f"Failed to get profile {user_id}: {e}")
+            logger.error(
+                f"Failed to get profile for user {user_id}",
+                extra={
+                    "user_id": str(user_id),
+                    "error": str(e),
+                    "error_type": type(e).__name__
+                },
+                exc_info=True
+            )
             return None
 
     async def create_profile(self, user_id: UUID, profile_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -129,7 +143,10 @@ class SupabaseService:
         self, user_id: UUID, updates: Dict[str, Any]
     ) -> Optional[Dict[str, Any]]:
         """
-        Update user profile.
+        Update user profile using UPSERT logic.
+
+        Creates the profile if it doesn't exist, updates if it does.
+        This prevents failures when profile is missing.
 
         Args:
             user_id: User UUID
@@ -139,21 +156,71 @@ class SupabaseService:
             Updated profile dict or None
         """
         try:
-            response = (
-                self.client.table("profiles")
-                .update(updates)
-                .eq("id", str(user_id))
-                .execute()
-            )
+            # First, try to check if profile exists
+            existing = await self.get_profile(user_id)
 
-            if not response.data or len(response.data) == 0:
-                logger.error(f"Profile update returned empty data for user {user_id}")
-                raise RuntimeError(f"Failed to update profile - no data returned")
+            if existing:
+                # Profile exists, do update
+                logger.info(f"Updating existing profile for user {user_id}")
+                response = (
+                    self.client.table("profiles")
+                    .update(updates)
+                    .eq("id", str(user_id))
+                    .execute()
+                )
 
-            logger.info(f"Updated profile for user {user_id}")
-            return response.data[0]
+                if not response.data or len(response.data) == 0:
+                    logger.error(
+                        f"Profile update returned empty data for user {user_id}",
+                        extra={
+                            "user_id": str(user_id),
+                            "updates_keys": list(updates.keys()),
+                            "response": str(response)
+                        }
+                    )
+                    raise RuntimeError(f"Failed to update profile - no data returned")
+
+                logger.info(f"Successfully updated profile for user {user_id}")
+                return response.data[0]
+            else:
+                # Profile doesn't exist, create it
+                logger.warning(
+                    f"Profile not found for user {user_id}, creating new profile",
+                    extra={
+                        "user_id": str(user_id),
+                        "updates_keys": list(updates.keys())
+                    }
+                )
+                data = {"id": str(user_id), **updates}
+                response = self.client.table("profiles").insert(data).execute()
+
+                if not response.data or len(response.data) == 0:
+                    logger.error(
+                        f"Profile creation returned empty data for user {user_id}",
+                        extra={
+                            "user_id": str(user_id),
+                            "response": str(response)
+                        }
+                    )
+                    raise RuntimeError(f"Failed to create profile - no data returned")
+
+                logger.info(f"Successfully created profile for user {user_id}")
+                return response.data[0]
+
+        except RuntimeError:
+            # Re-raise RuntimeError as-is
+            raise
         except Exception as e:
-            logger.error(f"Failed to update profile {user_id}: {e}")
+            logger.error(
+                f"Failed to update/create profile for user {user_id}",
+                extra={
+                    "user_id": str(user_id),
+                    "error_type": type(e).__name__,
+                    "error_message": str(e),
+                    "updates_keys": list(updates.keys())
+                },
+                exc_info=True
+            )
             raise
 
     # ========================================================================
