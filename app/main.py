@@ -78,6 +78,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                     StarletteIntegration(transaction_style="url"),
                 ],
 
+                # Send user data (IP, headers) for better debugging
+                # See: https://docs.sentry.io/platforms/python/data-management/data-collected/
+                send_default_pii=True,
+
                 # Tag all events
                 before_send=lambda event, hint: {
                     **event,
