@@ -17,6 +17,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, validator
 
 from app.api.dependencies import get_current_user
+from app.config import settings
 from app.services.macro_calculator import calculate_targets, MacroTargets
 from app.services.supabase_service import supabase_service
 from app.utils.logger import log_event
@@ -277,10 +278,18 @@ async def complete_onboarding(
             detail=f"Invalid input: {str(e)}"
         )
     except Exception as e:
-        log_event("onboarding_error", user_id=str(user_id), error=str(e))
+        log_event("onboarding_error", user_id=str(user_id), error=str(e), exc_info=True)
+
+        # In development, return detailed error message
+        if settings.is_development:
+            import traceback
+            detail = f"Failed to complete onboarding: {str(e)}\n{traceback.format_exc()}"
+        else:
+            detail = "Failed to complete onboarding. Please try again."
+
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to complete onboarding. Please try again."
+            detail=detail
         )
 
 

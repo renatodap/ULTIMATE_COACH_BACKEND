@@ -241,8 +241,8 @@ def calculate_targets(
 
     explanation = {
         'bmr': f'Calculated using Mifflin-St Jeor equation based on your age ({age}), sex ({sex}), height ({height_cm}cm), and weight ({current_weight_kg}kg)',
-        'tdee': f'BMR ({bmr} cal) × {activity_multiplier} activity multiplier for {activity_level.replace("_", " ")} lifestyle',
-        'calories': f'TDEE ({tdee} cal) {"−" if calorie_adjustment < 0 else "+"} {abs(calorie_adjustment)} cal adjustment for {primary_goal.replace("_", " ")} goal',
+        'tdee': f'BMR ({bmr} cal) x {activity_multiplier} activity multiplier for {activity_level.replace("_", " ")} lifestyle',
+        'calories': f'TDEE ({tdee} cal) {"-" if calorie_adjustment < 0 else "+"} {abs(calorie_adjustment)} cal adjustment for {primary_goal.replace("_", " ")} goal',
         'protein': f'{protein_multiplier}g per kg bodyweight ({current_weight_kg}kg) - optimal for {primary_goal.replace("_", " ")}',
         'fats': f'{int(FAT_PERCENTAGE * 100)}% of calories for hormone health and vitamin absorption',
         'carbs': f'Remaining calories after protein and fats - primary energy source',

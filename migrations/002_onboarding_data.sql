@@ -19,7 +19,7 @@ ALTER TABLE profiles
   ADD COLUMN IF NOT EXISTS biological_sex TEXT CHECK (biological_sex IN ('male', 'female')),
   ADD COLUMN IF NOT EXISTS height_cm NUMERIC(5, 2) CHECK (height_cm >= 100 AND height_cm <= 300),
   ADD COLUMN IF NOT EXISTS current_weight_kg NUMERIC(5, 2) CHECK (current_weight_kg >= 30 AND current_weight_kg <= 300),
-  ADD COLUMN IF NOT EXISTS goal_weight_kg NUMERIC(5, 2) CHECK (goal_weight_kg >= 30 AND current_weight_kg <= 300),
+  ADD COLUMN IF NOT EXISTS goal_weight_kg NUMERIC(5, 2) CHECK (goal_weight_kg >= 30 AND goal_weight_kg <= 300),
 
   -- Activity & Lifestyle
   ADD COLUMN IF NOT EXISTS activity_level TEXT CHECK (activity_level IN ('sedentary', 'lightly_active', 'moderately_active', 'very_active', 'extremely_active')),

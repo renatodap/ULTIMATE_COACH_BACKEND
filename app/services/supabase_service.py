@@ -145,8 +145,13 @@ class SupabaseService:
                 .eq("id", str(user_id))
                 .execute()
             )
+
+            if not response.data or len(response.data) == 0:
+                logger.error(f"Profile update returned empty data for user {user_id}")
+                raise RuntimeError(f"Failed to update profile - no data returned")
+
             logger.info(f"Updated profile for user {user_id}")
-            return response.data[0] if response.data else None
+            return response.data[0]
         except Exception as e:
             logger.error(f"Failed to update profile {user_id}: {e}")
             raise
