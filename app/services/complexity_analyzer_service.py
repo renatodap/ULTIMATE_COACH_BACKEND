@@ -68,19 +68,22 @@ Classify queries into three categories:
 These should use canned responses (FREE, instant).
 
 **SIMPLE** (50% of queries):
-- Basic nutrition questions: "How much protein in chicken?"
-- Simple calculations: "How many calories did I burn?"
-- Straightforward advice: "What should I eat post-workout?"
-- Data lookups: "Show me my stats"
-These can use Groq Llama 3.3 70B with tools ($0.01, 500ms).
+- General nutrition facts: "How much protein in chicken?"
+- Generic workout advice: "What should I eat post-workout?"
+- Simple definitions: "What is a calorie deficit?"
+- Common knowledge: "Is cardio good for fat loss?"
+These use Groq Llama 3.3 70B - NO TOOL CALLING ($0.01, 500ms).
+NOTE: Groq CANNOT fetch user data. If query needs user info, classify as COMPLEX.
 
 **COMPLEX** (20% of queries):
+- Queries requiring user data: "Can you see my profile?", "What are my goals?", "Show my stats"
 - Multi-step planning: "Create a 4-week training plan"
 - Deep analysis: "Analyze my progress and suggest changes"
 - Nuanced coaching: "I'm plateauing, what should I do?"
+- User-specific advice: "Should I increase my calories?" (needs user goals)
 - Long-form responses needed
-- Requires advanced reasoning
-These need Claude 3.5 Sonnet ($0.15, 2000ms).
+- Requires tool calling (get_user_profile, get_recent_meals, etc.)
+These need Claude 3.5 Sonnet with tool calling ($0.15, 2000ms).
 
 Examples:
 
@@ -88,16 +91,25 @@ INPUT: "hi"
 OUTPUT: {"complexity": "trivial", "confidence": 0.99, "recommended_model": "canned", "reasoning": "Simple greeting - canned response"}
 
 INPUT: "What's the protein in chicken breast?"
-OUTPUT: {"complexity": "simple", "confidence": 0.9, "recommended_model": "groq", "reasoning": "Simple nutrition lookup - Groq with food database tool"}
+OUTPUT: {"complexity": "simple", "confidence": 0.9, "recommended_model": "groq", "reasoning": "General nutrition fact - no user data needed"}
+
+INPUT: "Can you see my profile?"
+OUTPUT: {"complexity": "complex", "confidence": 0.95, "recommended_model": "claude", "reasoning": "Requires get_user_profile tool to fetch user data"}
+
+INPUT: "What are my macro goals?"
+OUTPUT: {"complexity": "complex", "confidence": 0.95, "recommended_model": "claude", "reasoning": "Needs user data via get_user_profile tool"}
+
+INPUT: "Show me my progress"
+OUTPUT: {"complexity": "complex", "confidence": 0.95, "recommended_model": "claude", "reasoning": "Requires tools to fetch user stats and measurements"}
 
 INPUT: "I want to build muscle but I'm plateauing. Can you analyze my approach and suggest a new program?"
-OUTPUT: {"complexity": "complex", "confidence": 0.95, "recommended_model": "claude", "reasoning": "Multi-step analysis and planning - needs Claude's reasoning"}
+OUTPUT: {"complexity": "complex", "confidence": 0.95, "recommended_model": "claude", "reasoning": "Multi-step analysis and planning - needs Claude's reasoning + tools"}
 
 INPUT: "How many calories in a banana?"
-OUTPUT: {"complexity": "simple", "confidence": 0.9, "recommended_model": "groq", "reasoning": "Simple data lookup - Groq with food search"}
+OUTPUT: {"complexity": "simple", "confidence": 0.9, "recommended_model": "groq", "reasoning": "General nutrition fact - no user data needed"}
 
 INPUT: "Create a detailed meal plan for the next week that hits my macros and includes variety"
-OUTPUT: {"complexity": "complex", "confidence": 0.95, "recommended_model": "claude", "reasoning": "Complex planning task - needs Claude"}
+OUTPUT: {"complexity": "complex", "confidence": 0.95, "recommended_model": "claude", "reasoning": "Complex planning + needs user macros via tools"}
 
 Return ONLY valid JSON:
 {
