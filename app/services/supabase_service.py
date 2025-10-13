@@ -429,13 +429,14 @@ class SupabaseService:
             end_date: ISO datetime (optional)
 
         Returns:
-            List of activity dicts
+            List of activity dicts (excludes soft-deleted activities)
         """
         try:
             query = (
                 self.client.table("activities")
                 .select("*")
                 .eq("user_id", str(user_id))
+                .is_("deleted_at", "null")  # Exclude soft-deleted activities
                 .order("start_time", desc=True)
                 .limit(limit)
                 .offset(offset)
@@ -469,6 +470,496 @@ class SupabaseService:
         except Exception as e:
             logger.error(f"Failed to create activity: {e}")
             raise
+
+    async def get_activity(self, activity_id: UUID) -> Optional[Dict[str, Any]]:
+        """
+        Get a single activity by ID.
+
+        Args:
+            activity_id: Activity UUID
+
+        Returns:
+            Activity dict or None (excludes soft-deleted)
+        """
+        try:
+            response = (
+                self.client.table("activities")
+                .select("*")
+                .eq("id", str(activity_id))
+                .is_("deleted_at", "null")  # Exclude soft-deleted activities
+                .single()
+                .execute()
+            )
+            return response.data
+        except Exception as e:
+            logger.error(f"Failed to get activity {activity_id}: {e}")
+            return None
+
+    async def update_activity(
+        self,
+        activity_id: UUID,
+        user_id: UUID,
+        updates: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Update an activity.
+
+        Args:
+            activity_id: Activity UUID
+            user_id: User UUID (for RLS check)
+            updates: Fields to update
+
+        Returns:
+            Updated activity dict
+        """
+        try:
+            response = (
+                self.client.table("activities")
+                .update(updates)
+                .eq("id", str(activity_id))
+                .eq("user_id", str(user_id))
+                .execute()
+            )
+
+            if not response.data or len(response.data) == 0:
+                logger.error(f"Activity update returned empty data for activity {activity_id}")
+                raise RuntimeError("Failed to update activity - no data returned")
+
+            logger.info(f"Updated activity {activity_id}")
+            return response.data[0]
+        except Exception as e:
+            logger.error(f"Failed to update activity {activity_id}: {e}")
+            raise
+
+    async def delete_activity(self, activity_id: UUID, user_id: UUID) -> bool:
+        """
+        Delete an activity (soft delete by setting deleted_at).
+
+        Args:
+            activity_id: Activity UUID
+            user_id: User UUID (for RLS check)
+
+        Returns:
+            True if deleted successfully
+        """
+        try:
+            # Soft delete - set deleted_at timestamp
+            response = (
+                self.client.table("activities")
+                .update({"deleted_at": "now()"})
+                .eq("id", str(activity_id))
+                .eq("user_id", str(user_id))
+                .execute()
+            )
+            logger.info(f"Deleted activity {activity_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to delete activity {activity_id}: {e}")
+            return False
+
+    # ========================================================================
+    # EXERCISE SETS
+    # ========================================================================
+
+    async def search_exercises(
+        self, query: str, category: Optional[str] = None, limit: int = 20
+    ) -> List[Dict[str, Any]]:
+        """
+        Search exercises by name with full-text search.
+
+        Args:
+            query: Search query
+            category: Optional category filter
+            limit: Max results
+
+        Returns:
+            List of exercise dicts sorted by relevance and usage
+        """
+        try:
+            # Use the search_exercises PostgreSQL function created in migration
+            response = self.client.rpc(
+                "search_exercises",
+                {
+                    "search_query": query,
+                    "category_filter": category,
+                    "limit_count": limit
+                }
+            ).execute()
+            return response.data
+        except Exception as e:
+            logger.error(f"Failed to search exercises: {e}")
+            # Fallback to simple ILIKE search if function doesn't exist yet
+            try:
+                db_query = (
+                    self.client.table("exercises")
+                    .select("*")
+                    .ilike("name", f"%{query}%")
+                    .eq("is_public", True)
+                    .eq("verified", True)
+                    .order("usage_count", desc=True)
+                    .limit(limit)
+                )
+                if category:
+                    db_query = db_query.eq("category", category)
+
+                response = db_query.execute()
+                return response.data
+            except Exception as e2:
+                logger.error(f"Fallback exercise search failed: {e2}")
+                return []
+
+    async def get_exercise_sets(
+        self,
+        activity_id: UUID,
+        user_id: Optional[UUID] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Get all exercise sets for an activity.
+
+        Args:
+            activity_id: Activity UUID
+            user_id: Optional user UUID for ownership verification
+
+        Returns:
+            List of exercise_set dicts with exercise details
+        """
+        try:
+            query = (
+                self.client.table("exercise_sets")
+                .select("*, exercises(*)")
+                .eq("activity_id", str(activity_id))
+                .order("set_number", desc=False)
+            )
+
+            if user_id:
+                query = query.eq("user_id", str(user_id))
+
+            response = query.execute()
+            return response.data
+        except Exception as e:
+            logger.error(f"Failed to get exercise sets for activity {activity_id}: {e}")
+            return []
+
+    async def create_exercise_sets(
+        self, sets_data: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """
+        Create multiple exercise sets.
+
+        Args:
+            sets_data: List of exercise_set dicts
+
+        Returns:
+            List of created exercise_set dicts
+        """
+        try:
+            response = self.client.table("exercise_sets").insert(sets_data).execute()
+            logger.info(f"Created {len(sets_data)} exercise sets")
+            return response.data
+        except Exception as e:
+            logger.error(f"Failed to create exercise sets: {e}")
+            raise
+
+    async def update_exercise_set(
+        self,
+        set_id: UUID,
+        user_id: UUID,
+        updates: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Update an exercise set.
+
+        Args:
+            set_id: Exercise set UUID
+            user_id: User UUID (for ownership verification)
+            updates: Fields to update
+
+        Returns:
+            Updated exercise_set dict
+        """
+        try:
+            response = (
+                self.client.table("exercise_sets")
+                .update(updates)
+                .eq("id", str(set_id))
+                .eq("user_id", str(user_id))
+                .execute()
+            )
+
+            if not response.data or len(response.data) == 0:
+                raise RuntimeError("Failed to update exercise set - no data returned")
+
+            logger.info(f"Updated exercise set {set_id}")
+            return response.data[0]
+        except Exception as e:
+            logger.error(f"Failed to update exercise set {set_id}: {e}")
+            raise
+
+    async def delete_exercise_set(
+        self, set_id: UUID, user_id: UUID
+    ) -> bool:
+        """
+        Delete an exercise set.
+
+        Args:
+            set_id: Exercise set UUID
+            user_id: User UUID (for ownership verification)
+
+        Returns:
+            True if deleted successfully
+        """
+        try:
+            response = (
+                self.client.table("exercise_sets")
+                .delete()
+                .eq("id", str(set_id))
+                .eq("user_id", str(user_id))
+                .execute()
+            )
+            logger.info(f"Deleted exercise set {set_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to delete exercise set {set_id}: {e}")
+            return False
+
+    async def get_user_exercise_history(
+        self,
+        user_id: UUID,
+        exercise_id: Optional[UUID] = None,
+        limit: int = 50
+    ) -> List[Dict[str, Any]]:
+        """
+        Get user's exercise history from the view.
+
+        Args:
+            user_id: User UUID
+            exercise_id: Optional filter by specific exercise
+            limit: Max results
+
+        Returns:
+            List of exercise history records
+        """
+        try:
+            query = (
+                self.client.table("user_exercise_history")
+                .select("*")
+                .eq("user_id", str(user_id))
+                .order("start_time", desc=True)
+                .limit(limit)
+            )
+
+            if exercise_id:
+                query = query.eq("exercise_id", str(exercise_id))
+
+            response = query.execute()
+            return response.data
+        except Exception as e:
+            logger.error(f"Failed to get exercise history for user {user_id}: {e}")
+            return []
+
+    async def get_personal_records(
+        self, user_id: UUID, exercise_id: Optional[UUID] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Get user's personal records from the view.
+
+        Args:
+            user_id: User UUID
+            exercise_id: Optional filter by specific exercise
+
+        Returns:
+            List of personal record dicts
+        """
+        try:
+            query = (
+                self.client.table("user_personal_records")
+                .select("*")
+                .eq("user_id", str(user_id))
+            )
+
+            if exercise_id:
+                query = query.eq("exercise_id", str(exercise_id))
+
+            response = query.execute()
+            return response.data
+        except Exception as e:
+            logger.error(f"Failed to get personal records for user {user_id}: {e}")
+            return []
+
+    # ========================================================================
+    # BODY METRICS
+    # ========================================================================
+
+    async def get_user_body_metrics(
+        self,
+        user_id: UUID,
+        limit: int = 50,
+        offset: int = 0,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Get body metrics for a user.
+
+        Args:
+            user_id: User UUID
+            limit: Max results
+            offset: Pagination offset
+            start_date: ISO datetime (optional)
+            end_date: ISO datetime (optional)
+
+        Returns:
+            List of body metric dicts sorted by recorded_at DESC
+        """
+        try:
+            query = (
+                self.client.table("body_metrics")
+                .select("*")
+                .eq("user_id", str(user_id))
+                .order("recorded_at", desc=True)
+                .limit(limit)
+                .offset(offset)
+            )
+
+            if start_date:
+                query = query.gte("recorded_at", start_date)
+            if end_date:
+                query = query.lte("recorded_at", end_date)
+
+            response = query.execute()
+            return response.data
+        except Exception as e:
+            logger.error(f"Failed to get body metrics for user {user_id}: {e}")
+            return []
+
+    async def get_latest_body_metric(self, user_id: UUID) -> Optional[Dict[str, Any]]:
+        """
+        Get the most recent body metric for a user.
+
+        Args:
+            user_id: User UUID
+
+        Returns:
+            Latest body metric dict or None
+        """
+        try:
+            response = (
+                self.client.table("body_metrics")
+                .select("*")
+                .eq("user_id", str(user_id))
+                .order("recorded_at", desc=True)
+                .limit(1)
+                .execute()
+            )
+
+            if response.data and len(response.data) > 0:
+                return response.data[0]
+            return None
+        except Exception as e:
+            logger.error(f"Failed to get latest body metric for user {user_id}: {e}")
+            return None
+
+    async def create_body_metric(self, metric_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Create a new body metric entry.
+
+        Args:
+            metric_data: Body metric fields
+
+        Returns:
+            Created body metric dict
+        """
+        try:
+            response = self.client.table("body_metrics").insert(metric_data).execute()
+            logger.info(f"Created body metric for user {metric_data.get('user_id')}")
+            return response.data[0]
+        except Exception as e:
+            logger.error(f"Failed to create body metric: {e}")
+            raise
+
+    async def get_body_metric(self, metric_id: UUID) -> Optional[Dict[str, Any]]:
+        """
+        Get a single body metric by ID.
+
+        Args:
+            metric_id: Body metric UUID
+
+        Returns:
+            Body metric dict or None
+        """
+        try:
+            response = (
+                self.client.table("body_metrics")
+                .select("*")
+                .eq("id", str(metric_id))
+                .single()
+                .execute()
+            )
+            return response.data
+        except Exception as e:
+            logger.error(f"Failed to get body metric {metric_id}: {e}")
+            return None
+
+    async def update_body_metric(
+        self,
+        metric_id: UUID,
+        user_id: UUID,
+        updates: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Update a body metric.
+
+        Args:
+            metric_id: Body metric UUID
+            user_id: User UUID (for RLS check)
+            updates: Fields to update
+
+        Returns:
+            Updated body metric dict
+        """
+        try:
+            response = (
+                self.client.table("body_metrics")
+                .update(updates)
+                .eq("id", str(metric_id))
+                .eq("user_id", str(user_id))
+                .execute()
+            )
+
+            if not response.data or len(response.data) == 0:
+                logger.error(f"Body metric update returned empty data for metric {metric_id}")
+                raise RuntimeError("Failed to update body metric - no data returned")
+
+            logger.info(f"Updated body metric {metric_id}")
+            return response.data[0]
+        except Exception as e:
+            logger.error(f"Failed to update body metric {metric_id}: {e}")
+            raise
+
+    async def delete_body_metric(self, metric_id: UUID, user_id: UUID) -> bool:
+        """
+        Delete a body metric.
+
+        Args:
+            metric_id: Body metric UUID
+            user_id: User UUID (for RLS check)
+
+        Returns:
+            True if deleted successfully
+        """
+        try:
+            response = (
+                self.client.table("body_metrics")
+                .delete()
+                .eq("id", str(metric_id))
+                .eq("user_id", str(user_id))
+                .execute()
+            )
+            logger.info(f"Deleted body metric {metric_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to delete body metric {metric_id}: {e}")
+            return False
 
     # ========================================================================
     # COACH CONVERSATIONS

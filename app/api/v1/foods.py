@@ -92,6 +92,65 @@ async def search_foods(
 
 
 @router.get(
+    "/foods/recent",
+    response_model=List[Food],
+    status_code=status.HTTP_200_OK,
+    summary="Get recent foods",
+    description="Get recently logged foods for quick access",
+)
+async def get_recent_foods(
+    limit: int = 10,
+    current_user: dict = Depends(get_current_user),
+) -> List[Food]:
+    """
+    Get recently logged foods for the authenticated user.
+
+    Returns foods the user has logged in meals, ordered by most recent.
+    Useful for quick meal logging.
+
+    Args:
+        limit: Maximum number of foods to return (default 10, max 50)
+        current_user: Authenticated user
+
+    Returns:
+        List of recently logged foods with nutrition info and servings
+    """
+    try:
+        # Validate limit
+        if limit < 1 or limit > 50:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Limit must be between 1 and 50",
+            )
+
+        recent_foods = await nutrition_service.get_recent_foods(
+            user_id=current_user["id"],
+            limit=limit,
+        )
+
+        logger.info(
+            "recent_foods_success",
+            count=len(recent_foods),
+            user_id=current_user["id"],
+        )
+
+        return recent_foods
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            "recent_foods_error",
+            user_id=current_user["id"],
+            error=str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve recent foods",
+        )
+
+
+@router.get(
     "/foods/{food_id}",
     response_model=Food,
     status_code=status.HTTP_200_OK,

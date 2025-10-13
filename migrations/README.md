@@ -48,6 +48,41 @@ psql "postgresql://postgres:[PASSWORD]@db.PROJECT_REF.supabase.co:5432/postgres"
 
 ## Migration Files
 
+### 20251012_230748_add_activity_tracking_system.sql
+**Status**: ⏳ Pending
+**Created**: 2025-10-12
+**Description**: Adds complete activity tracking system infrastructure
+
+**Changes**:
+- Updates `activities` table with 10 new columns:
+  - `end_time`, `deleted_at` (core features)
+  - `template_id`, `template_match_score`, `template_applied_at` (templates)
+  - `wearable_activity_id`, `wearable_url`, `device_name`, `sync_timestamp`, `raw_wearable_data` (wearables)
+- Creates 5 new tables:
+  - `activity_templates` - User workout templates with auto-matching
+  - `gps_tracks` - GPS route data (feature flagged)
+  - `activity_template_matches` - Match history for learning
+  - `activity_duplicates` - Duplicate detection & resolution
+  - `wearable_connections` - OAuth connections to Garmin/Strava/etc
+- Updates `profiles` table with 8 activity-related columns:
+  - `daily_calorie_burn_goal`, heart rate zones, max/resting HR
+- Adds helper function: `calculate_hr_zones()`
+- Updates `source` enum to include `apple_health` and `merged`
+- Creates 15+ indexes for performance
+
+**Dependencies**: Requires existing `activities` and `profiles` tables
+
+**Feature Flags Enabled**:
+- Template system (always on)
+- GPS tracking (optional, `GPS_TRACKING` flag)
+- Wearable sync (optional, `WEARABLES_ENABLED` flag)
+
+**To Apply**: Use Supabase SQL Editor or CLI (see options above)
+
+**Verification**: Migration includes self-checks that will raise errors if incomplete
+
+---
+
 ### 001_core_schema.sql
 **Status**: ⏳ Pending
 **Description**: Core database schema with 8 tables

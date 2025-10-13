@@ -8,8 +8,20 @@ import structlog
 from typing import Optional
 from fastapi import HTTPException, status, Request
 from app.services.auth_service import auth_service
+from app.config import settings
+from supabase import create_client, Client
 
 logger = structlog.get_logger()
+
+
+def get_supabase_client() -> Client:
+    """
+    Dependency to get Supabase client.
+
+    Returns:
+        Supabase client instance
+    """
+    return create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_KEY)
 
 
 async def get_current_user(request: Request) -> dict:

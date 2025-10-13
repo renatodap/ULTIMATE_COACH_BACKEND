@@ -72,7 +72,7 @@ class NutritionService:
                 supabase_service.client.table("foods")
                 .select("*, food_servings(*)")
                 .eq("is_public", True)
-                .text_search("name", query, config="english")
+                .ilike("name", f"%{query}%")
                 .order("usage_count", desc=True)
                 .order("verified", desc=True)
                 .limit(limit)
@@ -170,6 +170,96 @@ class NutritionService:
 
         except Exception as e:
             logger.error("get_food_servings_error", food_id=str(food_id), error=str(e))
+            return []
+
+    async def get_recent_foods(
+        self,
+        user_id: UUID,
+        limit: int = 10,
+    ) -> List[Food]:
+        """
+        Get recently logged foods for a user.
+
+        Returns foods the user has logged in meals, ordered by most recent.
+        Deduplicates by food_id.
+
+        Uses safe two-query approach to avoid complex join syntax.
+        """
+        try:
+            # Step 1: Get user's recent meal IDs
+            meals_response = (
+                supabase_service.client.table("meals")
+                .select("id")
+                .eq("user_id", str(user_id))
+                .order("logged_at", desc=True)
+                .limit(50)  # Get last 50 meals
+                .execute()
+            )
+
+            if not meals_response.data:
+                return []
+
+            meal_ids = [meal["id"] for meal in meals_response.data]
+
+            # Step 2: Get meal items for those meals, ordered by recency
+            meal_items_response = (
+                supabase_service.client.table("meal_items")
+                .select("food_id")
+                .in_("meal_id", meal_ids)
+                .order("created_at", desc=True)
+                .limit(limit * 3)  # Get more to account for duplicates
+                .execute()
+            )
+
+            if not meal_items_response.data:
+                return []
+
+            # Step 3: Extract unique food IDs (preserving order)
+            seen_food_ids = set()
+            unique_food_ids = []
+            for item in meal_items_response.data:
+                food_id = item["food_id"]
+                if food_id not in seen_food_ids:
+                    seen_food_ids.add(food_id)
+                    unique_food_ids.append(food_id)
+                    if len(unique_food_ids) >= limit:
+                        break
+
+            if not unique_food_ids:
+                return []
+
+            # Step 4: Fetch full food data with servings
+            foods_response = (
+                supabase_service.client.table("foods")
+                .select("*, food_servings(*)")
+                .in_("id", unique_food_ids)
+                .execute()
+            )
+
+            # Step 5: Build foods map
+            foods_map = {}
+            for row in foods_response.data:
+                servings_data = row.pop("food_servings", [])
+                food = Food(**row)
+                food.servings = [FoodServing(**s) for s in servings_data]
+                foods_map[row["id"]] = food
+
+            # Step 6: Return in order of recency (preserving unique_food_ids order)
+            recent_foods = []
+            for food_id in unique_food_ids:
+                if food_id in foods_map:
+                    recent_foods.append(foods_map[food_id])
+
+            logger.info(
+                "recent_foods_retrieved",
+                user_id=str(user_id),
+                count=len(recent_foods),
+            )
+
+            return recent_foods
+
+        except Exception as e:
+            logger.error("get_recent_foods_error", user_id=str(user_id), error=str(e))
             return []
 
     async def create_custom_food(

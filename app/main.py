@@ -199,19 +199,21 @@ async def root():
 
 
 # Import and include routers
-from app.api.v1 import health, auth, users, onboarding, foods, meals
+from app.api.v1 import health, auth, users, onboarding, foods, meals, activities, quick_meals, templates, body_metrics, dashboard, exercise_sets, coach
 
 app.include_router(health.router, prefix="/api/v1", tags=["Health"])
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentication"])
 app.include_router(users.router, prefix="/api/v1/users", tags=["Users"])
 app.include_router(onboarding.router, prefix="/api/v1/onboarding", tags=["Onboarding"])
+app.include_router(dashboard.router, prefix="/api/v1", tags=["Dashboard"])
 app.include_router(foods.router, prefix="/api/v1", tags=["Nutrition - Foods"])
 app.include_router(meals.router, prefix="/api/v1", tags=["Nutrition - Meals"])
-
-# Future routers will be added here:
-# from app.api.v1 import activities, coach
-# app.include_router(activities.router, prefix="/api/v1", tags=["Activities"])
-# app.include_router(coach.router, prefix="/api/v1", tags=["AI Coach"])
+app.include_router(quick_meals.router, prefix="/api/v1", tags=["Nutrition - Quick Meals"])
+app.include_router(activities.router, prefix="/api/v1", tags=["Activities"])
+app.include_router(templates.router, prefix="/api/v1", tags=["Activity Templates"])
+app.include_router(body_metrics.router, prefix="/api/v1", tags=["Body Metrics"])
+app.include_router(exercise_sets.router, prefix="/api/v1", tags=["Exercise Sets"])
+app.include_router(coach.router, prefix="/api/v1", tags=["AI Coach"])
 
 
 if __name__ == "__main__":

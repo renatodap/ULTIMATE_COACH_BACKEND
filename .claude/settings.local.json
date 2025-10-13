@@ -3,7 +3,12 @@
     "allow": [
       "Bash(dir .env)",
       "Bash(git remote add:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Read(//c/Users/pradord/Documents/Projects/ULTIMATE_COACH_FRONTEND/app/**)",
+      "Read(//c/Users/pradord/Documents/Projects/ULTIMATE_COACH_FRONTEND/app/activities/log/**)",
+      "Read(//c/Users/pradord/Documents/Projects/ULTIMATE_COACH_FRONTEND/**)",
+      "Read(//c/Users/pradord/Documents/Projects/ultimate_ai_coach_ultimate/**)"
     ],
     "deny": [],
     "ask": []
