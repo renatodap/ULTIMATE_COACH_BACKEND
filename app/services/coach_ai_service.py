@@ -7,7 +7,9 @@ for quick entry logs (meals, activities, measurements).
 
 import logging
 from typing import Dict, Any, Optional, Tuple
-from anthropic import AsyncAnthropic
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+from anthropic import Anthropic
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -17,12 +19,15 @@ class CoachAIService:
     """AI service for coach message processing."""
 
     def __init__(self):
-        """Initialize AI service with Anthropic async client."""
+        """Initialize AI service with Anthropic client."""
         if not settings.ANTHROPIC_API_KEY:
             logger.warning("ANTHROPIC_API_KEY not configured - AI features will be limited")
             self.client = None
         else:
-            self.client = AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
+            self.client = Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+
+        # Thread pool for running sync Anthropic calls in async context
+        self.executor = ThreadPoolExecutor(max_workers=3)
 
     async def classify_and_extract(
         self,
@@ -48,15 +53,19 @@ class CoachAIService:
             # Build system prompt
             system_prompt = self._build_classification_prompt()
 
-            # Call Claude (async)
-            response = await self.client.messages.create(
-                model="claude-3-5-sonnet-20241022",
-                max_tokens=1024,
-                temperature=0.1,  # Low temperature for consistent classification
-                system=system_prompt,
-                messages=[
-                    {"role": "user", "content": message}
-                ]
+            # Call Claude in thread pool (since SDK is synchronous)
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(
+                self.executor,
+                lambda: self.client.messages.create(
+                    model="claude-3-5-sonnet-20241022",
+                    max_tokens=1024,
+                    temperature=0.1,  # Low temperature for consistent classification
+                    system=system_prompt,
+                    messages=[
+                        {"role": "user", "content": message}
+                    ]
+                )
             )
 
             # Parse response
