@@ -2,9 +2,14 @@
 Response Formatter Service - Post-Processing with Llama
 
 Takes Claude's responses and makes them:
-1. Shorter (max 4 lines, ~60 words)
+1. More concise (dynamic limits based on content)
 2. More human/conversational
 3. Mobile-friendly
+
+DYNAMIC LIMITS:
+- Simple answers: Keep under 70 words
+- Complex answers: Keep under 150 words
+- Plans/analysis: Keep under 200 words
 
 Uses Groq Llama 3.3 70B for fast, cheap reformatting.
 Cost: ~$0.0001 per reformat (negligible)
@@ -45,26 +50,39 @@ class ResponseFormatterService:
         Returns:
             (formatted_response, metadata)
         """
-        # Quick check: if already short, don't reformat
+        # Count original
         word_count = len(original_response.split())
         line_count = len([l for l in original_response.split('\n') if l.strip()])
 
-        if word_count <= 70 and line_count <= 4:
-            logger.info(f"[ResponseFormatter] ✅ Already concise ({word_count} words, {line_count} lines)")
+        # Determine target based on original length (dynamic limits)
+        if word_count < 100:
+            target_words = 70
+            target_desc = "simple answer"
+        elif word_count < 200:
+            target_words = 150
+            target_desc = "complex answer"
+        else:
+            target_words = 200
+            target_desc = "detailed analysis"
+
+        # Skip reformatting if already within target (add 20% buffer)
+        if word_count <= target_words * 1.2:
+            logger.info(f"[ResponseFormatter] ✅ Already concise ({word_count} words, target: {target_words})")
             return (original_response, {
                 "reformatted": False,
                 "original_words": word_count,
-                "original_lines": line_count
+                "original_lines": line_count,
+                "target_words": target_words
             })
 
         logger.info(
             f"[ResponseFormatter] ✂️ Reformatting response "
-            f"({word_count} words, {line_count} lines → target: 60 words, 4 lines)"
+            f"({word_count} words → target: {target_words} words for {target_desc})"
         )
 
         try:
-            # Build reformatting prompt
-            system_prompt = self._build_formatter_prompt(language)
+            # Build reformatting prompt with dynamic target
+            system_prompt = self._build_formatter_prompt(language, target_words)
 
             # Call Groq Llama for reformatting
             response = self.groq.chat.completions.create(
@@ -77,10 +95,11 @@ class ResponseFormatterService:
 Coach's response to reformat:
 {original_response}
 
-Reformat this to be concise (max 60 words, 4 lines) and sound like a human texting."""}
+Reformat this to be concise (target: ~{target_words} words) and sound like a human texting.
+Keep key information but remove fluff."""}
                 ],
                 temperature=0.3,  # Low for consistent formatting
-                max_tokens=150
+                max_tokens=300  # Increased for longer answers
             )
 
             formatted = response.choices[0].message.content.strip()
@@ -117,15 +136,14 @@ Reformat this to be concise (max 60 words, 4 lines) and sound like a human texti
                 "error": str(e)
             })
 
-    def _build_formatter_prompt(self, language: str) -> str:
-        """Build system prompt for Llama formatter."""
+    def _build_formatter_prompt(self, language: str, target_words: int) -> str:
+        """Build system prompt for Llama formatter with dynamic target."""
 
         if language == 'pt':
-            return """Você é um formatador de mensagens. Sua missão: pegar respostas longas e torná-las CURTAS e NATURAIS.
+            return f"""Você é um formatador de mensagens. Sua missão: pegar respostas longas e torná-las CONCISAS e NATURAIS.
 
 REGRAS:
-- Max 4 linhas
-- Max 60 palavras
+- Target: ~{target_words} palavras (flexível, foque na qualidade)
 - Som humano (como mensagem de texto, não ensaio)
 - Preservar informações-chave
 - Uma sentença = uma linha
@@ -135,21 +153,22 @@ MANTENHA:
 - Números importantes (proteína, calorias, etc)
 - A ação/próximo passo
 - O tom direto
+- Detalhes necessários para compreensão
 
 REMOVA:
 - Introduções ("Ótima pergunta!")
 - Conclusões ("Espero ter ajudado!")
-- Explicações longas
-- Parágrafos múltiplos
+- Repetições
+- Palavras de preenchimento
+- Parágrafos múltiplos (use quebras de linha)
 
 Retorne APENAS a mensagem reformatada, sem explicações."""
 
         elif language == 'es':
-            return """Eres un formateador de mensajes. Tu misión: tomar respuestas largas y hacerlas CORTAS y NATURALES.
+            return f"""Eres un formateador de mensajes. Tu misión: tomar respuestas largas y hacerlas CONCISAS y NATURALES.
 
 REGLAS:
-- Max 4 líneas
-- Max 60 palabras
+- Target: ~{target_words} palabras (flexible, enfócate en calidad)
 - Sonar humano (como mensaje de texto, no ensayo)
 - Preservar información clave
 - Una oración = una línea
@@ -159,21 +178,22 @@ MANTENER:
 - Números importantes (proteína, calorías, etc)
 - La acción/próximo paso
 - El tono directo
+- Detalles necesarios para comprensión
 
 ELIMINAR:
 - Introducciones ("¡Buena pregunta!")
 - Conclusiones ("¡Espero que ayude!")
-- Explicaciones largas
-- Múltiples párrafos
+- Repeticiones
+- Palabras de relleno
+- Múltiples párrafos (usa saltos de línea)
 
 Devuelve SOLO el mensaje reformateado, sin explicaciones."""
 
         else:  # English
-            return """You're a message formatter. Your mission: take long responses and make them SHORT and NATURAL.
+            return f"""You're a message formatter. Your mission: take long responses and make them CONCISE and NATURAL.
 
 RULES:
-- Max 4 lines
-- Max 60 words
+- Target: ~{target_words} words (flexible, prioritize quality)
 - Sound human (like texting, not an essay)
 - Preserve key info
 - One sentence = one line
@@ -183,16 +203,17 @@ KEEP:
 - Important numbers (protein, calories, etc)
 - The action/next step
 - The direct tone
+- Details needed for understanding
 
 CUT:
 - Intros ("Great question!")
 - Outros ("Hope this helps!")
-- Long explanations
-- Multiple paragraphs
-- Fluff
+- Repetition
+- Filler words
+- Multiple paragraphs (use line breaks instead)
 
-BAD (too long):
-"That's an excellent question about protein. Protein requirements vary based on several factors including body weight and activity level. Generally speaking, research indicates that 0.8-1g per pound is optimal. I hope this helps!"
+BAD (too long + robotic):
+"That's an excellent question about protein. Protein requirements vary based on several factors including body weight and activity level. Generally speaking, research indicates that 0.8-1g per pound is optimal. I hope this information proves helpful!"
 
 GOOD (concise & human):
 "0.8-1g per lb bodyweight.

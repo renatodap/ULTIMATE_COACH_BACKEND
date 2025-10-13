@@ -195,17 +195,32 @@ class UnifiedCoachService:
 
             # STEP 5: Route to handler
             if classification['is_log'] and self.classifier.should_show_log_preview(classification):
-                # LOG MODE
-                logger.info(f"[UnifiedCoach] 📝 Routing to LOG mode: {classification['log_type']}")
-                return await self._handle_log_mode(
-                    user_id=user_id,
-                    conversation_id=conversation_id,
-                    user_message_id=user_message_id,
-                    message=message,
-                    image_base64=image_base64,
-                    classification=classification,
-                    user_language=user_language
-                )
+                # Check if BOTH log AND question (multi-intent)
+                if classification.get('has_question', False):
+                    # LOG + QUESTION MODE (dual handler)
+                    logger.info(f"[UnifiedCoach] 📝💬 Routing to LOG+QUESTION mode: {classification['log_type']}")
+                    return await self._handle_log_and_question_mode(
+                        user_id=user_id,
+                        conversation_id=conversation_id,
+                        user_message_id=user_message_id,
+                        message=message,
+                        image_base64=image_base64,
+                        classification=classification,
+                        background_tasks=background_tasks,
+                        user_language=user_language
+                    )
+                else:
+                    # LOG ONLY MODE
+                    logger.info(f"[UnifiedCoach] 📝 Routing to LOG mode: {classification['log_type']}")
+                    return await self._handle_log_mode(
+                        user_id=user_id,
+                        conversation_id=conversation_id,
+                        user_message_id=user_message_id,
+                        message=message,
+                        image_base64=image_base64,
+                        classification=classification,
+                        user_language=user_language
+                    )
             else:
                 # CHAT MODE
                 logger.info("[UnifiedCoach] 💬 Routing to CHAT mode")
@@ -823,6 +838,133 @@ class UnifiedCoachService:
                 user_language=user_language
             )
 
+    async def _handle_log_and_question_mode(
+        self,
+        user_id: str,
+        conversation_id: str,
+        user_message_id: str,
+        message: str,
+        image_base64: Optional[str],
+        classification: Dict[str, Any],
+        background_tasks: Optional[Any],
+        user_language: str
+    ) -> Dict[str, Any]:
+        """
+        Handle DUAL-INTENT: LOG + QUESTION in one message.
+
+        Example: "I ate 300g chicken. Was that enough protein?"
+
+        Flow:
+        1. Extract and save log data (as quick_entry pending)
+        2. Route message to Claude to answer the question
+        3. Return BOTH log_preview + answer
+
+        This fixes the UX issue where users had to send 2 separate messages.
+        """
+        logger.info(f"[UnifiedCoach.logQ] 📝💬 START - Dual-intent (log + question)")
+
+        try:
+            # STEP 1: Extract and save log data (same as LOG mode)
+            extraction = await self.log_extractor.extract_log_data(
+                message=message,
+                user_id=user_id
+            )
+
+            if not extraction:
+                # Extraction failed - fall back to chat mode only
+                logger.warning("[UnifiedCoach.logQ] ⚠️ Log extraction failed, routing to chat only")
+                return await self._handle_chat_mode(
+                    user_id=user_id,
+                    conversation_id=conversation_id,
+                    user_message_id=user_message_id,
+                    message=message,
+                    image_base64=image_base64,
+                    classification=classification,
+                    background_tasks=background_tasks,
+                    user_language=user_language
+                )
+
+            log_type = extraction["log_type"]
+            confidence = extraction["confidence"]
+            structured_data = extraction["structured_data"]
+            original_text = extraction["original_text"]
+
+            logger.info(
+                f"[UnifiedCoach.logQ] ✅ Extracted {log_type} (confidence: {confidence:.2f})"
+            )
+
+            # STEP 2: Save log to quick_entry_logs as pending
+            quick_entry_result = self.supabase.table("quick_entry_logs").insert({
+                "user_id": user_id,
+                "conversation_id": conversation_id,
+                "message_id": user_message_id,
+                "log_type": log_type,
+                "original_text": original_text,
+                "confidence": confidence,
+                "structured_data": structured_data,
+                "status": "pending",
+                "classifier_model": "llama-3.3-70b-versatile",
+                "classifier_cost_usd": 0.0001,
+                "extraction_model": "llama-3.3-70b-versatile",
+                "extraction_cost_usd": 0.0003
+            }).execute()
+
+            quick_entry_id = quick_entry_result.data[0]["id"]
+            logger.info(f"[UnifiedCoach.logQ] 💾 Saved quick entry: {quick_entry_id[:8]}...")
+
+            # STEP 3: Route to Claude to answer the question
+            # Use the FULL message (Claude will understand context: "I ate X. Was that enough?")
+            logger.info("[UnifiedCoach.logQ] 🧠 Now routing to Claude to answer question...")
+
+            chat_response = await self._handle_claude_chat(
+                user_id=user_id,
+                conversation_id=conversation_id,
+                user_message_id=user_message_id,
+                message=message,  # Full message with context
+                image_base64=image_base64,
+                background_tasks=background_tasks,
+                user_language=user_language
+            )
+
+            # STEP 4: Combine log preview + chat answer
+            logger.info("[UnifiedCoach.logQ] ✅ Returning BOTH log preview + answer")
+
+            return {
+                "success": True,
+                "conversation_id": conversation_id,
+                "message_id": chat_response["message_id"],  # Use AI response message ID
+                "is_log_preview": True,  # TRUE - frontend shows log card
+                "message": chat_response["message"],  # ALSO include chat response
+                "log_preview": {
+                    "quick_entry_id": quick_entry_id,
+                    "log_type": log_type,
+                    "original_text": original_text,
+                    "confidence": confidence,
+                    "structured_data": structured_data
+                },
+                "tokens_used": 150 + chat_response["tokens_used"],  # Extraction + Chat
+                "cost_usd": 0.0004 + chat_response["cost_usd"],  # Combined cost
+                "model": chat_response["model"],
+                "complexity": "complex",  # Always complex (Claude used)
+                "dual_intent": True  # Flag for frontend
+            }
+
+        except Exception as e:
+            logger.error(f"[UnifiedCoach.logQ] ❌ ERROR: {e}", exc_info=True)
+
+            # On error, fall back to chat mode only
+            logger.warning("[UnifiedCoach.logQ] Falling back to chat mode due to error")
+            return await self._handle_chat_mode(
+                user_id=user_id,
+                conversation_id=conversation_id,
+                user_message_id=user_message_id,
+                message=message,
+                image_base64=image_base64,
+                classification=classification,
+                background_tasks=background_tasks,
+                user_language=user_language
+            )
+
     async def _handle_log_mode(
         self,
         user_id: str,
@@ -1118,11 +1260,16 @@ Remember: You're the coach who tells them what they NEED to hear, not what they 
 <message_structure>
 **CRITICAL: KEEP RESPONSES SHORT AND CONVERSATIONAL**
 
-HARD LIMITS:
-- Max 4 lines (test: fits on mobile screen without scrolling)
-- Max 60 words total
+DYNAMIC LENGTH LIMITS (based on query complexity):
+- **Simple questions**: 60 words max (fits on mobile, no scrolling)
+- **Complex single-topic**: 100 words max (clear + complete)
+- **Multi-part analysis**: 150 words max (comprehensive but scannable)
+- **Planning/Programs**: 200 words max (detailed but digestible)
+
+GENERAL RULES:
 - Each sentence = new line for readability
 - Sound like a HUMAN texting, not a robot writing an essay
+- If answer needs more than 200 words, you're overexplaining - simplify
 
 FORMAT RULES:
 ✅ DO:
