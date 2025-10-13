@@ -28,6 +28,10 @@ from app.api.v1.schemas.coach_schemas import (
 )
 from app.api.dependencies import get_current_user
 from app.services.supabase_service import supabase_service
+from app.services.nutrition_service import nutrition_service
+from app.services.activity_service import activity_service
+from app.services.body_metrics_service import body_metrics_service
+from uuid import UUID
 
 logger = logging.getLogger(__name__)
 
@@ -57,8 +61,8 @@ async def send_message(
     """
     Send a message to the AI coach.
 
-    **TEMPORARY STUB**: Coach feature is under development.
-    Returns friendly placeholder messages for now.
+    Currently returns friendly messages while AI features are being enhanced.
+    Saves all messages to conversation history.
     """
     try:
         start_time = datetime.utcnow()
@@ -201,26 +205,50 @@ async def confirm_log(
         if request.edits:
             structured_data.update(request.edits)
 
-        # TODO: Save to appropriate table based on log_type
-        # For MVP, we'll just mark as confirmed
-        # In production, call quick_entry_service.save_log()
-
+        # Save to appropriate table based on log_type
         log_type = qe["log_type"]
-        log_id = None  # TODO: Get from saved meal/activity/measurement
+        log_id = None
 
         if log_type == "meal":
-            # TODO: Save to meals table
-            # meal_id = await meal_service.create_meal(user_id, structured_data)
-            # log_id = meal_id
-            log_id = "meal-mvp-stub"
+            # Save to meals table
+            meal = await nutrition_service.create_meal(
+                user_id=user_id,
+                name=structured_data.get("name"),
+                meal_type=structured_data.get("meal_type", "snack"),
+                logged_at=datetime.fromisoformat(structured_data.get("logged_at")) if structured_data.get("logged_at") else datetime.utcnow(),
+                notes=structured_data.get("notes"),
+                items=structured_data.get("items", []),
+                source="coach_chat",
+                ai_confidence=qe.get("confidence")
+            )
+            log_id = str(meal.id)
 
         elif log_type == "activity":
-            # TODO: Save to activities table
-            log_id = "activity-mvp-stub"
+            # Save to activities table
+            activity = await activity_service.create_activity(
+                user_id=UUID(user_id),
+                category=structured_data.get("category", "other"),
+                activity_name=structured_data.get("activity_name", "Activity"),
+                start_time=datetime.fromisoformat(structured_data.get("start_time")) if structured_data.get("start_time") else datetime.utcnow(),
+                end_time=datetime.fromisoformat(structured_data.get("end_time")) if structured_data.get("end_time") else None,
+                duration_minutes=structured_data.get("duration_minutes"),
+                calories_burned=structured_data.get("calories_burned", 0),
+                intensity_mets=structured_data.get("intensity_mets", 3.0),
+                metrics=structured_data.get("metrics", {}),
+                notes=structured_data.get("notes")
+            )
+            log_id = activity["id"]
 
         elif log_type == "measurement":
-            # TODO: Save to body_measurements table
-            log_id = "measurement-mvp-stub"
+            # Save to body_metrics table
+            metric = await body_metrics_service.create_body_metric(
+                user_id=UUID(user_id),
+                recorded_at=datetime.fromisoformat(structured_data.get("recorded_at")) if structured_data.get("recorded_at") else datetime.utcnow(),
+                weight_kg=structured_data.get("weight_kg"),
+                body_fat_percentage=structured_data.get("body_fat_percentage"),
+                notes=structured_data.get("notes")
+            )
+            log_id = metric["id"]
 
         # Update quick_entry_log status
         supabase.table("quick_entry_logs")\
