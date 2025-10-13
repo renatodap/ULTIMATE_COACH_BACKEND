@@ -78,20 +78,28 @@ NOTE: ONLY use SIMPLE for purely educational questions with NO personalization b
 If question could benefit from user context (goals, preferences, stats), classify as COMPLEX.
 
 **COMPLEX** (60% of queries):
-- Queries requiring user data: "Can you see my profile?", "What are my goals?", "Show my stats"
-- Multi-step planning: "Create a 4-week training plan"
-- Deep analysis: "Analyze my progress and suggest changes"
-- Nuanced coaching: "I'm plateauing, what should I do?"
-- User-specific advice: "Should I increase my calories?" (needs user goals)
-- Questions that benefit from personalization:
+- **User data queries**: "What have I done today?", "Show my progress", "What did I eat?", "Can you see my profile?"
+- **Planning requests**: "Give me a plan", "Create a workout", "Make me a meal plan" (ALWAYS complex, requires tools)
+- **Multi-step analysis**: "Analyze my progress and suggest changes"
+- **Nuanced coaching**: "I'm plateauing, what should I do?"
+- **User-specific advice**: "Should I increase my calories?" (needs user goals)
+- **Questions that benefit from personalization**:
   - "How much protein in chicken?" → Better with context: "You need 150g daily, 300g chicken would provide 90g"
   - "What should I eat?" → Needs macros, preferences, allergies
   - "Should I do cardio?" → Needs goals, current routine
   - "How many calories should I eat?" → Needs bodyweight, goals, activity level
   - "Is this food good for me?" → Needs dietary preferences, goals
 - Long-form responses needed
-- Requires tool calling (get_user_profile, get_recent_meals, etc.)
+- **Requires tool calling** (get_user_profile, get_recent_meals, get_daily_nutrition_summary, etc.)
 These need Claude 3.5 Sonnet with tool calling ($0.15, 2000ms).
+
+**KEY PATTERNS FOR COMPLEX:**
+- "What have/did I..." → USER DATA (tool needed)
+- "Show/give me..." → USER DATA (tool needed)
+- "Create/make/plan..." → PLANNING (tool + reasoning)
+- "Should I..." → PERSONALIZED ADVICE (tool needed)
+- "My..." (my progress, my goals, my stats) → USER DATA (tool needed)
+
 NOTE: Most fitness questions benefit from user context. When in doubt, classify as COMPLEX.
 
 Examples:
@@ -131,6 +139,21 @@ OUTPUT: {"complexity": "complex", "confidence": 0.85, "recommended_model": "clau
 
 INPUT: "Define progressive overload"
 OUTPUT: {"complexity": "simple", "confidence": 0.95, "recommended_model": "groq", "reasoning": "Pure educational definition - no personalization needed"}
+
+INPUT: "What have I done today?"
+OUTPUT: {"complexity": "complex", "confidence": 0.95, "recommended_model": "claude", "reasoning": "Requires get_daily_nutrition_summary or get_recent_activities tools to fetch user data"}
+
+INPUT: "Show me my progress"
+OUTPUT: {"complexity": "complex", "confidence": 0.95, "recommended_model": "claude", "reasoning": "Requires get_body_measurements and calculate_progress_trend tools"}
+
+INPUT: "What did I eat yesterday?"
+OUTPUT: {"complexity": "complex", "confidence": 0.95, "recommended_model": "claude", "reasoning": "Requires get_recent_meals tool to fetch meal history"}
+
+INPUT: "Give me a 4 week plan for muscle gain"
+OUTPUT: {"complexity": "complex", "confidence": 0.95, "recommended_model": "claude", "reasoning": "Planning requires get_user_profile for goals/macros and multi-step reasoning"}
+
+INPUT: "Create a workout program"
+OUTPUT: {"complexity": "complex", "confidence": 0.95, "recommended_model": "claude", "reasoning": "Program creation requires user profile data and complex planning"}
 
 Return ONLY valid JSON:
 {
