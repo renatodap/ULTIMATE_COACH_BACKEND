@@ -94,14 +94,14 @@ async def send_message(
             "I'll be fully ready to help you crush your goals soon! 💪"
         )
 
-        # Save AI message
+        # Save AI message (stub mode - no real AI provider)
         ai_msg_result = supabase.table("coach_messages").insert({
             "conversation_id": conversation_id,
             "user_id": user_id,
             "role": "assistant",
             "content": response_content,
-            "ai_provider": "stub",
-            "ai_model": "placeholder",
+            "ai_provider": None,  # NULL in stub mode (no real AI used)
+            "ai_model": None,  # NULL in stub mode
             "tokens_used": 0,
             "cost_usd": 0.0
         }).execute()
@@ -126,7 +126,7 @@ async def send_message(
             quick_entry_id=None,
             should_show_preview=False,
             tool_calls=[],
-            model_used="stub",
+            model_used=None,  # NULL in stub mode
             response_time_ms=response_time_ms,
             cost_usd=0.0,
             tokens_used=0,
