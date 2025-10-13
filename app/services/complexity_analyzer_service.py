@@ -211,7 +211,10 @@ Return ONLY valid JSON."""
 
         try:
             # Call Claude Haiku for classification (fast + accurate)
-            response = self.anthropic.messages.create(
+            # Using sync client in async method - run in thread pool to avoid blocking
+            import asyncio
+            response = await asyncio.to_thread(
+                self.anthropic.messages.create,
                 model="claude-3-5-haiku-20241022",
                 max_tokens=150,
                 temperature=0.1,  # Low for consistent classification
