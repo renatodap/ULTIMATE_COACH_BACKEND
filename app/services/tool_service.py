@@ -92,7 +92,7 @@ You respond: "Logged. 300g chicken = 93g protein, 495 cal."
     },
     {
         "name": "get_daily_nutrition_summary",
-        "description": "Get today's nutrition totals (calories, protein, carbs, fats). Returns EMPTY in MVP - no meal logging yet.",
+        "description": "Get nutrition totals for a specific date (calories, protein, carbs, fats) with goal progress. Includes meal count, totals, and percentage progress toward daily goals.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -106,7 +106,7 @@ You respond: "Logged. 300g chicken = 93g protein, 495 cal."
     },
     {
         "name": "get_recent_meals",
-        "description": "Get user's recent meals. Returns EMPTY in MVP - no meal logging yet.",
+        "description": "Get user's recent meal history with full nutrition breakdown. Returns meals from the past N days with name, meal type, nutrition totals, and notes.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -126,7 +126,7 @@ You respond: "Logged. 300g chicken = 93g protein, 495 cal."
     },
     {
         "name": "get_recent_activities",
-        "description": "Get user's recent workouts/activities. Returns EMPTY in MVP - no activity logging yet.",
+        "description": "Get user's recent workouts and activities history. Returns activities from past N days with category, duration, calories burned, intensity (METs), and category-specific metrics (distance, sets/reps, etc.).",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -146,7 +146,7 @@ You respond: "Logged. 300g chicken = 93g protein, 495 cal."
     },
     {
         "name": "get_body_measurements",
-        "description": "Get user's body measurements history (weight, body fat, etc.). Returns EMPTY in MVP - no measurements yet.",
+        "description": "Get user's body measurements history including weight (kg), body fat percentage, and notes. Returns measurements from past N days ordered by date, including latest weight.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -161,7 +161,7 @@ You respond: "Logged. 300g chicken = 93g protein, 495 cal."
     },
     {
         "name": "calculate_progress_trend",
-        "description": "Calculate trend for a metric (weight, calories, etc.). Returns EMPTY in MVP - no historical data yet.",
+        "description": "Calculate progress trend for weight, calories, or protein over time. Analyzes historical data to show first vs last value, absolute change, percentage change, and trend direction (increasing/decreasing/stable). Requires at least 2 data points.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -180,7 +180,7 @@ You respond: "Logged. 300g chicken = 93g protein, 495 cal."
     },
     {
         "name": "analyze_training_volume",
-        "description": "Analyze training volume and intensity. Returns EMPTY in MVP - no activity data yet.",
+        "description": "Analyze training volume and intensity over time. Returns total workouts, total duration, total calories burned, average intensity (METs), workouts per week, breakdown by category, and average duration per workout.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -572,52 +572,373 @@ class ToolService:
         return score
 
     async def _get_daily_nutrition_summary(self, user_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
-        """Get today's nutrition totals. MVP: Returns empty."""
-        # TODO: Implement when meal logging exists
-        return {
-            "message": "No meal data available yet. Meal logging coming soon!",
-            "totals": None
-        }
+        """Get today's nutrition totals."""
+        try:
+            from datetime import date, datetime, time
+
+            # Get target date (default: today)
+            target_date_str = params.get("date")
+            if target_date_str:
+                target_date = datetime.fromisoformat(target_date_str).date()
+            else:
+                target_date = date.today()
+
+            # Query meals for this date
+            start_of_day = datetime.combine(target_date, time.min)
+            end_of_day = datetime.combine(target_date, time.max)
+
+            result = self.supabase.table("meals")\
+                .select("id, name, meal_type, logged_at, total_calories, total_protein_g, total_carbs_g, total_fat_g")\
+                .eq("user_id", user_id)\
+                .gte("logged_at", start_of_day.isoformat())\
+                .lte("logged_at", end_of_day.isoformat())\
+                .order("logged_at", desc=False)\
+                .execute()
+
+            if not result.data:
+                return {
+                    "date": target_date.isoformat(),
+                    "meal_count": 0,
+                    "totals": {
+                        "calories": 0,
+                        "protein_g": 0,
+                        "carbs_g": 0,
+                        "fat_g": 0
+                    },
+                    "message": "No meals logged for this date yet."
+                }
+
+            # Calculate totals
+            total_calories = sum(float(m.get("total_calories") or 0) for m in result.data)
+            total_protein = sum(float(m.get("total_protein_g") or 0) for m in result.data)
+            total_carbs = sum(float(m.get("total_carbs_g") or 0) for m in result.data)
+            total_fat = sum(float(m.get("total_fat_g") or 0) for m in result.data)
+
+            # Get user's goals
+            profile = await self._get_user_profile(user_id, {})
+            daily_cal_goal = profile.get("daily_calorie_goal")
+            daily_protein_goal = profile.get("daily_protein_goal")
+
+            return {
+                "date": target_date.isoformat(),
+                "meal_count": len(result.data),
+                "totals": {
+                    "calories": round(total_calories),
+                    "protein_g": round(total_protein, 1),
+                    "carbs_g": round(total_carbs, 1),
+                    "fat_g": round(total_fat, 1)
+                },
+                "goals": {
+                    "calories": daily_cal_goal,
+                    "protein_g": daily_protein_goal
+                },
+                "progress": {
+                    "calories_percent": round((total_calories / daily_cal_goal * 100) if daily_cal_goal else 0),
+                    "protein_percent": round((total_protein / daily_protein_goal * 100) if daily_protein_goal else 0)
+                }
+            }
+        except Exception as e:
+            logger.error(f"[ToolService] get_daily_nutrition_summary failed: {e}")
+            return {"error": str(e)}
 
     async def _get_recent_meals(self, user_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
-        """Get recent meals. MVP: Returns empty."""
-        # TODO: Implement when meal logging exists
-        return {
-            "message": "No meal history available yet. Tell me what you ate and I'll help!",
-            "meals": []
-        }
+        """Get recent meals."""
+        try:
+            from datetime import datetime, timedelta
+
+            days = params.get("days", 7)
+            limit = min(params.get("limit", 20), 50)  # Max 50
+
+            # Query recent meals
+            cutoff_date = (datetime.now() - timedelta(days=days)).isoformat()
+
+            result = self.supabase.table("meals")\
+                .select("id, name, meal_type, logged_at, total_calories, total_protein_g, total_carbs_g, total_fat_g, notes")\
+                .eq("user_id", user_id)\
+                .gte("logged_at", cutoff_date)\
+                .order("logged_at", desc=True)\
+                .limit(limit)\
+                .execute()
+
+            if not result.data:
+                return {
+                    "days_searched": days,
+                    "meal_count": 0,
+                    "meals": [],
+                    "message": "No meals logged in the past {} days.".format(days)
+                }
+
+            # Format meals
+            meals = []
+            for meal in result.data:
+                meals.append({
+                    "id": meal["id"],
+                    "name": meal.get("name"),
+                    "meal_type": meal["meal_type"],
+                    "logged_at": meal["logged_at"],
+                    "nutrition": {
+                        "calories": round(float(meal.get("total_calories") or 0)),
+                        "protein_g": round(float(meal.get("total_protein_g") or 0), 1),
+                        "carbs_g": round(float(meal.get("total_carbs_g") or 0), 1),
+                        "fat_g": round(float(meal.get("total_fat_g") or 0), 1)
+                    },
+                    "notes": meal.get("notes")
+                })
+
+            return {
+                "days_searched": days,
+                "meal_count": len(meals),
+                "meals": meals
+            }
+        except Exception as e:
+            logger.error(f"[ToolService] get_recent_meals failed: {e}")
+            return {"error": str(e)}
 
     async def _get_recent_activities(self, user_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
-        """Get recent activities. MVP: Returns empty."""
-        # TODO: Implement when activity logging exists
-        return {
-            "message": "No activity history available yet. Tell me about your workout!",
-            "activities": []
-        }
+        """Get recent activities."""
+        try:
+            from datetime import datetime, timedelta
+
+            days = params.get("days", 7)
+            limit = min(params.get("limit", 20), 50)  # Max 50
+
+            # Query recent activities (exclude soft-deleted)
+            cutoff_date = (datetime.now() - timedelta(days=days)).isoformat()
+
+            result = self.supabase.table("activities")\
+                .select("id, category, activity_name, start_time, end_time, duration_minutes, calories_burned, intensity_mets, metrics, notes")\
+                .eq("user_id", user_id)\
+                .gte("start_time", cutoff_date)\
+                .is_("deleted_at", "null")\
+                .order("start_time", desc=True)\
+                .limit(limit)\
+                .execute()
+
+            if not result.data:
+                return {
+                    "days_searched": days,
+                    "activity_count": 0,
+                    "activities": [],
+                    "message": "No activities logged in the past {} days.".format(days)
+                }
+
+            # Format activities
+            activities = []
+            for activity in result.data:
+                activities.append({
+                    "id": activity["id"],
+                    "category": activity.get("category"),
+                    "activity_name": activity["activity_name"],
+                    "start_time": activity["start_time"],
+                    "duration_minutes": activity.get("duration_minutes"),
+                    "calories_burned": activity.get("calories_burned"),
+                    "intensity_mets": float(activity.get("intensity_mets") or 0),
+                    "metrics": activity.get("metrics", {}),
+                    "notes": activity.get("notes")
+                })
+
+            return {
+                "days_searched": days,
+                "activity_count": len(activities),
+                "activities": activities
+            }
+        except Exception as e:
+            logger.error(f"[ToolService] get_recent_activities failed: {e}")
+            return {"error": str(e)}
 
     async def _get_body_measurements(self, user_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
-        """Get body measurements. MVP: Returns empty."""
-        # TODO: Implement when measurements exist
-        return {
-            "message": "No measurement data available yet.",
-            "measurements": []
-        }
+        """Get body measurements."""
+        try:
+            from datetime import datetime, timedelta
+
+            days = params.get("days", 30)
+
+            # Query body metrics
+            cutoff_date = (datetime.now() - timedelta(days=days)).isoformat()
+
+            result = self.supabase.table("body_metrics")\
+                .select("id, recorded_at, weight_kg, body_fat_percentage, notes")\
+                .eq("user_id", user_id)\
+                .gte("recorded_at", cutoff_date)\
+                .order("recorded_at", desc=True)\
+                .execute()
+
+            if not result.data:
+                return {
+                    "days_searched": days,
+                    "measurement_count": 0,
+                    "measurements": [],
+                    "message": "No measurements logged in the past {} days.".format(days)
+                }
+
+            # Format measurements
+            measurements = []
+            for m in result.data:
+                measurements.append({
+                    "id": m["id"],
+                    "recorded_at": m["recorded_at"],
+                    "weight_kg": float(m["weight_kg"]),
+                    "body_fat_percentage": float(m["body_fat_percentage"]) if m.get("body_fat_percentage") else None,
+                    "notes": m.get("notes")
+                })
+
+            return {
+                "days_searched": days,
+                "measurement_count": len(measurements),
+                "measurements": measurements,
+                "latest_weight_kg": measurements[0]["weight_kg"] if measurements else None
+            }
+        except Exception as e:
+            logger.error(f"[ToolService] get_body_measurements failed: {e}")
+            return {"error": str(e)}
 
     async def _calculate_progress_trend(self, user_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
-        """Calculate progress trend. MVP: Returns empty."""
-        # TODO: Implement when historical data exists
-        return {
-            "message": "Not enough data yet to calculate trends.",
-            "trend": None
-        }
+        """Calculate progress trend for a metric."""
+        try:
+            from datetime import datetime, timedelta
+
+            metric = params["metric"].lower()
+            days = params.get("days", 30)
+            cutoff_date = (datetime.now() - timedelta(days=days)).isoformat()
+
+            # Route to appropriate table based on metric
+            if metric == "weight":
+                result = self.supabase.table("body_metrics")\
+                    .select("recorded_at, weight_kg")\
+                    .eq("user_id", user_id)\
+                    .gte("recorded_at", cutoff_date)\
+                    .order("recorded_at", desc=False)\
+                    .execute()
+
+                if not result.data or len(result.data) < 2:
+                    return {
+                        "metric": metric,
+                        "message": "Not enough data to calculate trend. Need at least 2 measurements.",
+                        "trend": None
+                    }
+
+                # Calculate trend
+                first_value = float(result.data[0]["weight_kg"])
+                last_value = float(result.data[-1]["weight_kg"])
+                change = last_value - first_value
+                percent_change = (change / first_value * 100) if first_value > 0 else 0
+
+                return {
+                    "metric": "weight",
+                    "days_analyzed": days,
+                    "data_points": len(result.data),
+                    "first_value_kg": round(first_value, 1),
+                    "last_value_kg": round(last_value, 1),
+                    "change_kg": round(change, 1),
+                    "percent_change": round(percent_change, 1),
+                    "trend": "increasing" if change > 0 else "decreasing" if change < 0 else "stable"
+                }
+
+            elif metric in ["calories", "protein"]:
+                # Query meals for nutrition trends
+                result = self.supabase.table("meals")\
+                    .select("logged_at, total_calories, total_protein_g")\
+                    .eq("user_id", user_id)\
+                    .gte("logged_at", cutoff_date)\
+                    .order("logged_at", desc=False)\
+                    .execute()
+
+                if not result.data:
+                    return {
+                        "metric": metric,
+                        "message": "No meal data to analyze.",
+                        "trend": None
+                    }
+
+                # Group by date and calculate daily totals
+                from collections import defaultdict
+                daily_totals = defaultdict(float)
+
+                for meal in result.data:
+                    date = meal["logged_at"].split("T")[0]  # Extract date
+                    if metric == "calories":
+                        daily_totals[date] += float(meal.get("total_calories") or 0)
+                    else:  # protein
+                        daily_totals[date] += float(meal.get("total_protein_g") or 0)
+
+                if len(daily_totals) < 2:
+                    return {
+                        "metric": metric,
+                        "message": "Not enough daily data to calculate trend.",
+                        "trend": None
+                    }
+
+                # Calculate average for first half vs second half
+                dates = sorted(daily_totals.keys())
+                mid_point = len(dates) // 2
+                first_half_avg = sum(daily_totals[d] for d in dates[:mid_point]) / mid_point
+                second_half_avg = sum(daily_totals[d] for d in dates[mid_point:]) / (len(dates) - mid_point)
+                change = second_half_avg - first_half_avg
+                percent_change = (change / first_half_avg * 100) if first_half_avg > 0 else 0
+
+                return {
+                    "metric": metric,
+                    "days_analyzed": len(dates),
+                    "first_period_avg": round(first_half_avg, 1),
+                    "second_period_avg": round(second_half_avg, 1),
+                    "change": round(change, 1),
+                    "percent_change": round(percent_change, 1),
+                    "trend": "increasing" if change > 0 else "decreasing" if change < 0 else "stable"
+                }
+
+            else:
+                return {"error": f"Unsupported metric: {metric}. Try 'weight', 'calories', or 'protein'."}
+
+        except Exception as e:
+            logger.error(f"[ToolService] calculate_progress_trend failed: {e}")
+            return {"error": str(e)}
 
     async def _analyze_training_volume(self, user_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
-        """Analyze training volume. MVP: Returns empty."""
-        # TODO: Implement when activity data exists
-        return {
-            "message": "No training data available yet.",
-            "analysis": None
-        }
+        """Analyze training volume and intensity."""
+        try:
+            from datetime import datetime, timedelta
+
+            days = params.get("days", 7)
+            cutoff_date = (datetime.now() - timedelta(days=days)).isoformat()
+
+            # Query activities
+            result = self.supabase.table("activities")\
+                .select("id, category, duration_minutes, calories_burned, intensity_mets, start_time")\
+                .eq("user_id", user_id)\
+                .gte("start_time", cutoff_date)\
+                .is_("deleted_at", "null")\
+                .order("start_time", desc=False)\
+                .execute()
+
+            if not result.data:
+                return {
+                    "days_analyzed": days,
+                    "message": "No training data for this period.",
+                    "analysis": None
+                }
+
+            # Analyze
+            total_duration = sum(a.get("duration_minutes") or 0 for a in result.data)
+            total_calories = sum(a.get("calories_burned") or 0 for a in result.data)
+            avg_intensity = sum(float(a.get("intensity_mets") or 0) for a in result.data) / len(result.data)
+
+            # Count by category
+            from collections import Counter
+            category_counts = Counter(a.get("category") for a in result.data)
+
+            return {
+                "days_analyzed": days,
+                "total_workouts": len(result.data),
+                "total_duration_minutes": round(total_duration),
+                "total_calories_burned": round(total_calories),
+                "avg_intensity_mets": round(avg_intensity, 1),
+                "workouts_per_week": round(len(result.data) / (days / 7), 1),
+                "by_category": dict(category_counts),
+                "avg_duration_per_workout": round(total_duration / len(result.data)) if result.data else 0
+            }
+        except Exception as e:
+            logger.error(f"[ToolService] analyze_training_volume failed: {e}")
+            return {"error": str(e)}
 
     async def _semantic_search_user_data(self, user_id: str, params: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Semantic search. MVP: Returns empty."""
@@ -741,9 +1062,31 @@ class ToolService:
             activity_mets = MET_VALUES.get(activity_type.lower(), {"moderate": 5.0})
             met = activity_mets.get(intensity, 5.0)
 
-            # Get user weight (need for calorie calculation)
-            # Simplified: Assume 70kg if not available
-            weight_kg = 70  # TODO: Get from user profile/measurements
+            # Get user weight from latest measurement or profile
+            weight_kg = 70  # Default fallback
+
+            # Try body_metrics first (most recent)
+            metrics_result = self.supabase.table("body_metrics")\
+                .select("weight_kg")\
+                .eq("user_id", user_id)\
+                .order("recorded_at", desc=True)\
+                .limit(1)\
+                .execute()
+
+            if metrics_result.data:
+                weight_kg = float(metrics_result.data[0]["weight_kg"])
+            else:
+                # Fallback to profile
+                profile = await self._get_user_profile(user_id, {})
+                # Assume profile has current_weight_kg field
+                profile_result = self.supabase.table("profiles")\
+                    .select("current_weight_kg")\
+                    .eq("id", user_id)\
+                    .single()\
+                    .execute()
+
+                if profile_result.data and profile_result.data.get("current_weight_kg"):
+                    weight_kg = float(profile_result.data["current_weight_kg"])
 
             # Calculate calories: MET × weight (kg) × duration (hours)
             calories = met * weight_kg * (duration_minutes / 60)

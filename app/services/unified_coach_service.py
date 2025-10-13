@@ -61,6 +61,7 @@ class UnifiedCoachService:
         from app.services.complexity_analyzer_service import get_complexity_analyzer
         from app.services.security_service import get_security_service
         from app.services.response_formatter_service import get_response_formatter
+        from app.services.log_extraction_service import get_log_extraction_service
 
         self.classifier = get_message_classifier(groq_client)
         self.i18n = get_i18n_service(supabase_client)
@@ -73,6 +74,7 @@ class UnifiedCoachService:
         self.complexity_analyzer = get_complexity_analyzer(groq_client)
         self.security = get_security_service(self.cache)
         self.formatter = get_response_formatter(groq_client)
+        self.log_extractor = get_log_extraction_service(groq_client)
 
         # AI clients
         self.groq = groq_client
@@ -832,34 +834,101 @@ class UnifiedCoachService:
         user_language: str
     ) -> Dict[str, Any]:
         """
-        Handle LOG mode - return preview for confirmation.
+        Handle LOG mode - extract structured data and return preview for confirmation.
 
-        Note: Actual extraction happens in quick_entry_service (not included here yet)
-        For MVP, we'll return a simple preview structure.
+        Flow:
+        1. Use Groq to extract structured data (meal/activity/measurement)
+        2. Save to quick_entry_logs table as pending
+        3. Return preview card to frontend
+        4. Frontend shows preview with confirm/cancel buttons
+        5. On confirm: Create actual meal/activity/measurement record
         """
         logger.info(f"[UnifiedCoach.log] 📝 START - type: {classification['log_type']}")
 
-        # TODO: Integrate with quick_entry_service for actual extraction
-        # For now, return a mock preview
+        try:
+            # STEP 1: Extract structured data using Groq
+            extraction = await self.log_extractor.extract_log_data(
+                message=message,
+                user_id=user_id
+            )
 
-        return {
-            "success": True,
-            "conversation_id": conversation_id,
-            "message_id": user_message_id,
-            "is_log_preview": True,
-            "message": None,
-            "log_preview": {
-                "log_type": classification['log_type'],
-                "original_text": message,
-                "confidence": classification['confidence'],
-                "data": {
-                    "message": "Log extraction not yet implemented. Quick entry service integration coming soon!"
-                }
-            },
-            "tokens_used": 0,
-            "cost_usd": 0.0001,
-            "model": "classifier"
-        }
+            if not extraction:
+                # Extraction failed - fall back to chat mode
+                logger.warning("[UnifiedCoach.log] ⚠️ Extraction failed, falling back to chat")
+                return await self._handle_chat_mode(
+                    user_id=user_id,
+                    conversation_id=conversation_id,
+                    user_message_id=user_message_id,
+                    message=message,
+                    image_base64=image_base64,
+                    classification=classification,
+                    background_tasks=None,
+                    user_language=user_language
+                )
+
+            log_type = extraction["log_type"]
+            confidence = extraction["confidence"]
+            structured_data = extraction["structured_data"]
+            original_text = extraction["original_text"]
+
+            logger.info(
+                f"[UnifiedCoach.log] ✅ Extracted {log_type} "
+                f"(confidence: {confidence:.2f})"
+            )
+
+            # STEP 2: Save to quick_entry_logs table as pending
+            quick_entry_result = self.supabase.table("quick_entry_logs").insert({
+                "user_id": user_id,
+                "conversation_id": conversation_id,
+                "message_id": user_message_id,
+                "log_type": log_type,
+                "original_text": original_text,
+                "confidence": confidence,
+                "structured_data": structured_data,
+                "status": "pending",
+                "classifier_model": "llama-3.3-70b-versatile",
+                "classifier_cost_usd": 0.0001,  # ~$0.0001 for classification + extraction
+                "extraction_model": "llama-3.3-70b-versatile",
+                "extraction_cost_usd": 0.0003
+            }).execute()
+
+            quick_entry_id = quick_entry_result.data[0]["id"]
+            logger.info(f"[UnifiedCoach.log] 💾 Saved quick entry: {quick_entry_id[:8]}...")
+
+            # STEP 3: Return preview for frontend confirmation
+            return {
+                "success": True,
+                "conversation_id": conversation_id,
+                "message_id": user_message_id,
+                "is_log_preview": True,
+                "message": None,
+                "log_preview": {
+                    "quick_entry_id": quick_entry_id,
+                    "log_type": log_type,
+                    "original_text": original_text,
+                    "confidence": confidence,
+                    "structured_data": structured_data
+                },
+                "tokens_used": 150,  # Approximate for extraction
+                "cost_usd": 0.0004,
+                "model": "llama-3.3-70b-versatile"
+            }
+
+        except Exception as e:
+            logger.error(f"[UnifiedCoach.log] ❌ ERROR: {e}", exc_info=True)
+
+            # On error, fall back to chat mode
+            logger.warning("[UnifiedCoach.log] Falling back to chat mode due to error")
+            return await self._handle_chat_mode(
+                user_id=user_id,
+                conversation_id=conversation_id,
+                user_message_id=user_message_id,
+                message=message,
+                image_base64=image_base64,
+                classification=classification,
+                background_tasks=None,
+                user_language=user_language
+            )
 
     # ========================================================================
     # HELPER METHODS
