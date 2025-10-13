@@ -31,6 +31,7 @@ from app.services.supabase_service import supabase_service
 from app.services.nutrition_service import nutrition_service
 from app.services.activity_service import activity_service
 from app.services.body_metrics_service import body_metrics_service
+from app.services.coach_ai_service import coach_ai_service
 from uuid import UUID
 
 logger = logging.getLogger(__name__)
@@ -45,6 +46,68 @@ router = APIRouter(prefix="/coach", tags=["coach"])
 def get_supabase():
     """Get Supabase client."""
     return supabase_service.client
+
+
+def _generate_log_confirmation_message(log_type: str, data: dict) -> str:
+    """Generate confirmation message for detected log."""
+    if log_type == "meal":
+        items_text = ", ".join([f"{item.get('quantity', '')} {item.get('name', '')}"
+                                for item in data.get("items", [])])
+        return (
+            f"✅ **MEAL DETECTED!**\n\n"
+            f"I logged: {items_text}\n"
+            f"Meal type: {data.get('meal_type', 'snack').title()}\n\n"
+            f"Tap below to confirm or edit before saving!"
+        )
+
+    elif log_type == "activity":
+        return (
+            f"✅ **WORKOUT DETECTED!**\n\n"
+            f"Activity: {data.get('activity_name', 'Activity')}\n"
+            f"Duration: {data.get('duration_minutes', 0)} minutes\n"
+            f"Calories: ~{data.get('calories_burned', 0)} kcal\n\n"
+            f"Tap below to confirm or edit before saving!"
+        )
+
+    elif log_type == "measurement":
+        weight_kg = data.get('weight_kg')
+        bf_pct = data.get('body_fat_percentage')
+        msg = f"✅ **MEASUREMENT DETECTED!**\n\n"
+        if weight_kg:
+            msg += f"Weight: {weight_kg} kg\n"
+        if bf_pct:
+            msg += f"Body Fat: {bf_pct}%\n"
+        msg += "\nTap below to confirm or edit before saving!"
+        return msg
+
+    return "Log detected! Confirm to save."
+
+
+def _generate_chat_response(message: str) -> str:
+    """Generate friendly chat response."""
+    # Simple responses for now - can be enhanced with AI later
+    message_lower = message.lower()
+
+    if any(word in message_lower for word in ["hello", "hi", "hey"]):
+        return "Hey! 💪 Ready to crush your goals today? What can I help you with?"
+
+    elif any(word in message_lower for word in ["progress", "how am i doing"]):
+        return "I'd love to show you your progress! Check out the Dashboard tab to see your full stats and trends. 📊"
+
+    elif any(word in message_lower for word in ["what should i eat", "meal ideas", "food"]):
+        return "Great question! For meal tracking, head to the Nutrition tab. Tell me what you eat by saying something like 'I ate 3 eggs and oatmeal' and I'll log it for you! 🍽️"
+
+    elif any(word in message_lower for word in ["workout", "exercise", "train"]):
+        return "Time to get after it! 💪 Check the Activities tab to log your workouts. You can also tell me things like 'I ran 5km' and I'll track it for you!"
+
+    else:
+        return (
+            "I'm here to help you track your fitness journey! You can:\n\n"
+            "• Tell me what you ate: 'I had chicken and rice'\n"
+            "• Log workouts: 'I ran 5km' or 'Did bench press'\n"
+            "• Track measurements: 'I weigh 185 lbs'\n\n"
+            "Just chat naturally and I'll help you log it! 💪"
+        )
 
 
 # ============================================================================
@@ -88,29 +151,78 @@ async def send_message(
             "content": request.message
         }).execute()
 
-        # Generate simple response (stub)
-        response_content = (
-            "Hey! I'm your AI coach, but I'm still in training mode. "
-            "The full AI features are coming soon! For now, you can:\n\n"
-            "• Track meals in the Nutrition tab\n"
-            "• Log workouts in the Activities tab\n"
-            "• View your progress in the Dashboard\n\n"
-            "I'll be fully ready to help you crush your goals soon! 💪"
+        # Classify message with AI
+        classification, structured_data, confidence = await coach_ai_service.classify_and_extract(
+            message=request.message,
+            user_context=None  # TODO: Pass user profile/goals for better context
         )
 
-        # Save AI message (stub mode - no real AI provider)
-        ai_msg_result = supabase.table("coach_messages").insert({
-            "conversation_id": conversation_id,
-            "user_id": user_id,
-            "role": "assistant",
-            "content": response_content,
-            "ai_provider": None,  # NULL in stub mode (no real AI used)
-            "ai_model": None,  # NULL in stub mode
-            "tokens_used": 0,
-            "cost_usd": 0.0
-        }).execute()
+        logger.info(
+            f"[CoachAPI] Message classified: {classification} "
+            f"(confidence: {confidence:.2f})"
+        )
 
-        message_id = ai_msg_result.data[0]["id"]
+        # Handle log detection
+        if classification in ["meal", "activity", "measurement"] and confidence >= 0.7:
+            # Create quick_entry_log
+            quick_entry_result = supabase.table("quick_entry_logs").insert({
+                "user_id": user_id,
+                "conversation_id": conversation_id,
+                "user_message_id": user_msg_result.data[0]["id"],
+                "log_type": classification,
+                "structured_data": structured_data,
+                "confidence": confidence,
+                "status": "pending"
+            }).execute()
+
+            quick_entry_id = quick_entry_result.data[0]["id"]
+
+            # Generate confirmation response
+            response_content = _generate_log_confirmation_message(
+                classification, structured_data
+            )
+
+            # Save AI message
+            ai_msg_result = supabase.table("coach_messages").insert({
+                "conversation_id": conversation_id,
+                "user_id": user_id,
+                "role": "assistant",
+                "content": response_content,
+                "ai_provider": "anthropic",
+                "ai_model": "claude-3-5-sonnet-20241022",
+                "tokens_used": 0,  # Will be updated if we track
+                "cost_usd": 0.0,
+                "quick_entry_id": quick_entry_id
+            }).execute()
+
+            message_id = ai_msg_result.data[0]["id"]
+
+            # Return log preview
+            log_preview = {
+                "id": quick_entry_id,
+                "type": classification,
+                "data": structured_data,
+                "confidence": confidence
+            }
+
+        else:
+            # Chat response
+            response_content = _generate_chat_response(request.message)
+
+            # Save AI message
+            ai_msg_result = supabase.table("coach_messages").insert({
+                "conversation_id": conversation_id,
+                "user_id": user_id,
+                "role": "assistant",
+                "content": response_content,
+                "ai_provider": "anthropic" if coach_ai_service.client else None,
+                "ai_model": "claude-3-5-sonnet-20241022" if coach_ai_service.client else None,
+                "tokens_used": 0,
+                "cost_usd": 0.0
+            }).execute()
+
+            message_id = ai_msg_result.data[0]["id"]
+            log_preview = None
 
         # Calculate response time
         end_time = datetime.utcnow()
@@ -126,11 +238,11 @@ async def send_message(
             "conversation_id": conversation_id,
             "message_id": message_id,
             "message": response_content,  # Frontend expects "message" not "content"
-            "is_log_preview": False,  # Frontend expects "is_log_preview" not "should_show_preview"
-            "log_preview": None,
+            "is_log_preview": log_preview is not None,  # True if we detected a log
+            "log_preview": log_preview,  # Contains log data if detected
             "tokens_used": 0,
             "cost_usd": 0.0,
-            "model": "stub",  # Frontend expects "model" not "model_used"
+            "model": "claude-3-5-sonnet" if coach_ai_service.client else "fallback",
             "tools_used": []
         }
 

@@ -111,10 +111,16 @@ async def search_foods(
     if query:
         try:
             # Use PostgreSQL full-text search for better ranking
+            # Search across both English and Portuguese columns
             foods_response = (
                 supabase.table("foods")
                 .select("*, servings:food_servings(*)")
-                .or_(f"name.ilike.%{query}%,brand_name.ilike.%{query}%")
+                .or_(
+                    f"name.ilike.%{query}%,"
+                    f"brand_name.ilike.%{query}%,"
+                    f"name_pt.ilike.%{query}%,"
+                    f"brand_name_pt.ilike.%{query}%"
+                )
                 .or_(f"is_public.eq.true,created_by.eq.{user_id}")  # Public or user's own
                 .order("usage_count", desc=True)  # Popular foods first
                 .limit(limit)
