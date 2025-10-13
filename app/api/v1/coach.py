@@ -47,7 +47,7 @@ def get_supabase():
 # MESSAGE ENDPOINTS
 # ============================================================================
 
-@router.post("/message", response_model=MessageResponse)
+@router.post("/message")
 async def send_message(
     request: MessageRequest,
     background_tasks: BackgroundTasks,
@@ -116,22 +116,19 @@ async def send_message(
             f"[CoachAPI] ✅ Stub response ready: {response_time_ms}ms"
         )
 
-        # Build response
-        return MessageResponse(
-            message_id=message_id,
-            conversation_id=conversation_id,
-            content=response_content,
-            classification={"is_log": False, "is_chat": True, "confidence": 1.0},
-            complexity=None,  # No complexity analysis in stub mode
-            quick_entry_id=None,
-            should_show_preview=False,
-            tool_calls=[],
-            model_used="stub",  # Stub mode identifier
-            response_time_ms=response_time_ms,
-            cost_usd=0.0,
-            tokens_used=0,
-            created_at=datetime.utcnow()
-        )
+        # Build response matching frontend expectations
+        return {
+            "success": True,
+            "conversation_id": conversation_id,
+            "message_id": message_id,
+            "message": response_content,  # Frontend expects "message" not "content"
+            "is_log_preview": False,  # Frontend expects "is_log_preview" not "should_show_preview"
+            "log_preview": None,
+            "tokens_used": 0,
+            "cost_usd": 0.0,
+            "model": "stub",  # Frontend expects "model" not "model_used"
+            "tools_used": []
+        }
 
     except Exception as e:
         logger.error(f"[CoachAPI] ❌ Message processing failed: {e}", exc_info=True)
