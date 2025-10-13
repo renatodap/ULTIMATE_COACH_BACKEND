@@ -10,7 +10,7 @@ This is 77% cheaper than all-Claude approach!
 """
 
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 import json
 
 logger = logging.getLogger(__name__)
