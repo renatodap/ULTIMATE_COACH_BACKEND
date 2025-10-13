@@ -26,15 +26,13 @@ class CoachAIService:
 
     async def classify_and_extract(
         self,
-        message: str,
-        user_context: Optional[Dict[str, Any]] = None
+        message: str
     ) -> Tuple[str, Optional[Dict[str, Any]], float]:
         """
         Classify message and extract structured data.
 
         Args:
             message: User's message text
-            user_context: Optional user profile data (goals, preferences, etc.)
 
         Returns:
             Tuple of (classification, structured_data, confidence)
@@ -48,7 +46,7 @@ class CoachAIService:
 
         try:
             # Build system prompt
-            system_prompt = self._build_classification_prompt(user_context)
+            system_prompt = self._build_classification_prompt()
 
             # Call Claude
             response = self.client.messages.create(
@@ -86,9 +84,11 @@ class CoachAIService:
             # Fallback to chat on error
             return ("chat", None, 0.0)
 
-    def _build_classification_prompt(self, user_context: Optional[Dict[str, Any]]) -> str:
+    def _build_classification_prompt(self) -> str:
         """Build system prompt for classification."""
         return """You are a fitness coach AI assistant. Your job is to classify user messages and extract structured data.
+
+**Note:** Focus ONLY on classification and data extraction. Do not use user context or preferences for this task - those are for personalized coaching responses, not log detection.
 
 **Message Types:**
 1. **meal** - User is logging food they ate/drank

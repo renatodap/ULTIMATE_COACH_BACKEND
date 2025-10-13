@@ -151,10 +151,9 @@ async def send_message(
             "content": request.message
         }).execute()
 
-        # Classify message with AI
+        # Classify message with AI (no user context - that's for personalized responses)
         classification, structured_data, confidence = await coach_ai_service.classify_and_extract(
-            message=request.message,
-            user_context=None  # TODO: Pass user profile/goals for better context
+            message=request.message
         )
 
         logger.info(
