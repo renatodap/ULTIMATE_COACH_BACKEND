@@ -7,7 +7,7 @@ for quick entry logs (meals, activities, measurements).
 
 import logging
 from typing import Dict, Any, Optional, Tuple
-from anthropic import Anthropic
+from anthropic import AsyncAnthropic
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -17,12 +17,12 @@ class CoachAIService:
     """AI service for coach message processing."""
 
     def __init__(self):
-        """Initialize AI service with Anthropic client."""
+        """Initialize AI service with Anthropic async client."""
         if not settings.ANTHROPIC_API_KEY:
             logger.warning("ANTHROPIC_API_KEY not configured - AI features will be limited")
             self.client = None
         else:
-            self.client = Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+            self.client = AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
 
     async def classify_and_extract(
         self,
@@ -48,8 +48,8 @@ class CoachAIService:
             # Build system prompt
             system_prompt = self._build_classification_prompt()
 
-            # Call Claude
-            response = self.client.messages.create(
+            # Call Claude (async)
+            response = await self.client.messages.create(
                 model="claude-3-5-sonnet-20241022",
                 max_tokens=1024,
                 temperature=0.1,  # Low temperature for consistent classification

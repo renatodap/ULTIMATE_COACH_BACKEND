@@ -228,7 +228,7 @@ async def send_message(
         response_time_ms = int((end_time - start_time).total_seconds() * 1000)
 
         logger.info(
-            f"[CoachAPI] ✅ Stub response ready: {response_time_ms}ms"
+            f"[CoachAPI] ✅ Response ready: {response_time_ms}ms"
         )
 
         # Build response matching frontend expectations
