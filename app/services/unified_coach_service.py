@@ -71,7 +71,13 @@ class UnifiedCoachService:
         self.context_detector = get_context_detector()
         self.conversation_memory = get_conversation_memory_service(supabase_client)
         self.tool_service = get_tool_service(supabase_client)
-        self.complexity_analyzer = get_complexity_analyzer(groq_client)
+
+        # Create sync Anthropic client for complexity analyzer (uses sync API calls)
+        from anthropic import Anthropic
+        import os
+        sync_anthropic_client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+        self.complexity_analyzer = get_complexity_analyzer(sync_anthropic_client)
+
         self.security = get_security_service(self.cache)
         self.formatter = get_response_formatter(groq_client)
         self.log_extractor = get_log_extraction_service(groq_client)

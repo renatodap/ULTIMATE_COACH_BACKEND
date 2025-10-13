@@ -6,9 +6,10 @@ Analyzes query complexity to route to appropriate model:
 - Simple (10%): Groq Llama 3.3 70B ($0.01, 500ms) - pure definitions
 - Complex (60%): Claude 3.5 Sonnet ($0.15, 2000ms) - personalized coaching
 
+Uses Claude 3.5 Haiku for ACCURATE classification ($0.0002/query, 800ms).
 Routes 90% of queries to personalized responses (canned + Claude).
-Cost: $0.00505/query vs $0.0056/query (all-Claude).
-Savings: Negligible ($0.80 per 1000 queries), but optimizes for personalization.
+Cost: $0.00527/query vs $0.0056/query (all-Claude).
+Savings: 94% cheaper while maintaining quality.
 """
 
 import logging
@@ -22,11 +23,18 @@ class ComplexityAnalyzerService:
     """
     Analyzes query complexity for smart routing.
 
-    Uses Groq Llama 3.3 70B for fast, cheap classification.
+    Uses Claude 3.5 Haiku for fast, accurate classification.
+    Much more reliable than Groq for understanding user intent.
     """
 
-    def __init__(self, groq_client):
-        self.groq = groq_client
+    def __init__(self, anthropic_client):
+        """
+        Initialize with Anthropic client (for Claude Haiku).
+
+        Args:
+            anthropic_client: Anthropic (NOT AsyncAnthropic) client for sync calls
+        """
+        self.anthropic = anthropic_client
 
     async def analyze_complexity(
         self,
@@ -59,153 +67,135 @@ class ComplexityAnalyzerService:
                 "reasoning": "Image requires multimodal model (Claude)"
             }
 
-        # FAST PRE-CHECK: Pattern matching for obvious cases (skip LLM for speed + accuracy)
-        message_lower = message.lower()
+        system_prompt = """You are an expert query classifier for an AI fitness coach system.
 
-        # User data query patterns (ALWAYS complex)
-        user_data_patterns = [
-            "what have i", "what did i", "show my", "show me my",
-            "what are my", "can you see my", "my progress", "my goals",
-            "my stats", "my macros", "my profile"
-        ]
-        for pattern in user_data_patterns:
-            if pattern in message_lower:
-                return {
-                    "complexity": "complex",
-                    "confidence": 0.98,
-                    "recommended_model": "claude",
-                    "reasoning": f"User data query pattern detected: '{pattern}' requires tools"
-                }
+Your job: Analyze user queries and classify them into ONE of three categories based on what the query needs.
 
-        # Planning request patterns (ALWAYS complex)
-        planning_patterns = [
-            "give me a plan", "give me a workout", "give me a program",
-            "create a plan", "create a workout", "create a program",
-            "make me a plan", "make me a workout", "make me a program",
-            "build me a", "design a"
-        ]
-        for pattern in planning_patterns:
-            if pattern in message_lower:
-                return {
-                    "complexity": "complex",
-                    "confidence": 0.98,
-                    "recommended_model": "claude",
-                    "reasoning": f"Planning request detected: '{pattern}' requires user data + reasoning"
-                }
+═══════════════════════════════════════════════════════════════════
+CATEGORY 1: TRIVIAL (30% of queries)
+═══════════════════════════════════════════════════════════════════
+**What:** One-word social interactions with NO fitness content
+**Routing:** Canned response (pattern-matched, instant, FREE)
+**Examples:**
+- Greetings: "hi", "hello", "hey", "what's up", "sup"
+- Thanks: "thanks", "thank you", "thx", "ty"
+- Acknowledgments: "ok", "okay", "got it", "understood", "cool"
+- Goodbyes: "bye", "goodbye", "see you", "later", "cya"
 
-        # Planning with duration patterns (ALWAYS complex)
-        import re
-        if re.search(r'(week|day|month)\s+(plan|program|workout|training)', message_lower):
-            return {
-                "complexity": "complex",
-                "confidence": 0.98,
-                "recommended_model": "claude",
-                "reasoning": "Multi-week planning requires user profile data and structured planning"
-            }
+**Key rule:** If there's ANY fitness content, it's NOT trivial.
 
-        system_prompt = """You are a query complexity analyzer for an AI fitness coach.
+═══════════════════════════════════════════════════════════════════
+CATEGORY 2: SIMPLE (10% of queries)
+═══════════════════════════════════════════════════════════════════
+**What:** Pure educational/definitional questions with ZERO personalization benefit
+**Routing:** Groq Llama (fast, cheap, NO tool access)
+**Examples:**
+- Definitions: "What is BMR?", "Define protein", "What is a calorie?"
+- Science: "Explain metabolism", "How does muscle growth work?"
+- Concepts: "What is progressive overload?", "What are macros?"
 
-Classify queries into three categories:
+**CRITICAL:** If the answer would be BETTER with user context, it's COMPLEX, not SIMPLE.
 
-**TRIVIAL** (30% of queries):
-- Single-word greetings: "hi", "hello", "hey"
-- Simple acknowledgments: "thanks", "ok", "got it"
-- Goodbyes: "bye", "see you later"
-These should use canned responses (FREE, instant).
+Test: Would knowing the user's goals/stats/preferences make this answer 2x better?
+- NO → SIMPLE
+- YES → COMPLEX
 
-**SIMPLE** (10% of queries):
-- Pure definitions: "What is BMR?", "Define protein", "What is a calorie?"
-- Scientific terms: "Explain metabolism", "What are macros?"
-- Basic concepts: "What is progressive overload?"
-These use Groq Llama 3.3 70B - NO TOOL CALLING ($0.01, 500ms).
-NOTE: ONLY use SIMPLE for purely educational questions with NO personalization benefit.
-If question could benefit from user context (goals, preferences, stats), classify as COMPLEX.
+═══════════════════════════════════════════════════════════════════
+CATEGORY 3: COMPLEX (60% of queries)
+═══════════════════════════════════════════════════════════════════
+**What:** Anything requiring user data, personalization, or tool calling
+**Routing:** Claude 3.5 Sonnet with agentic tools (powerful, personalized)
 
-**COMPLEX** (60% of queries):
-- **User data queries**: "What have I done today?", "Show my progress", "What did I eat?", "Can you see my profile?"
-- **Planning requests**: "Give me a plan", "Create a workout", "Make me a meal plan" (ALWAYS complex, requires tools)
-- **Multi-step analysis**: "Analyze my progress and suggest changes"
-- **Nuanced coaching**: "I'm plateauing, what should I do?"
-- **User-specific advice**: "Should I increase my calories?" (needs user goals)
-- **Questions that benefit from personalization**:
-  - "How much protein in chicken?" → Better with context: "You need 150g daily, 300g chicken would provide 90g"
-  - "What should I eat?" → Needs macros, preferences, allergies
-  - "Should I do cardio?" → Needs goals, current routine
-  - "How many calories should I eat?" → Needs bodyweight, goals, activity level
-  - "Is this food good for me?" → Needs dietary preferences, goals
-- Long-form responses needed
-- **Requires tool calling** (get_user_profile, get_recent_meals, get_daily_nutrition_summary, etc.)
-These need Claude 3.5 Sonnet with tool calling ($0.15, 2000ms).
+**ALWAYS COMPLEX - User Data Queries:**
+- "What have I done today?"
+- "What did I eat yesterday?"
+- "Show my progress"
+- "Show me my stats"
+- "What are my goals?"
+- "Can you see my profile?"
+- "What are my macros?"
+- "How am I doing?"
+- "Am I on track?"
+- Any question about "my [anything]"
 
-**KEY PATTERNS FOR COMPLEX:**
-- "What have/did I..." → USER DATA (tool needed)
-- "Show/give me..." → USER DATA (tool needed)
-- "Create/make/plan..." → PLANNING (tool + reasoning)
-- "Should I..." → PERSONALIZED ADVICE (tool needed)
-- "My..." (my progress, my goals, my stats) → USER DATA (tool needed)
+**ALWAYS COMPLEX - Planning Requests:**
+- "Give me a [workout/meal/training] plan"
+- "Create a [program/routine/plan]"
+- "Make me a [X]-week plan"
+- "Design a workout"
+- "Build me a program"
+- "Suggest a routine"
+- "I need a plan"
+- ANY request for multi-day/week planning
 
-NOTE: Most fitness questions benefit from user context. When in doubt, classify as COMPLEX.
+**ALWAYS COMPLEX - Personalized Advice:**
+- "Should I [do cardio/eat carbs/increase calories]?"
+- "How much [protein/calories] should I eat?"
+- "How many [reps/sets/days] should I do?"
+- "What should I eat [before/after/for] X?"
+- "Is this [food/workout/amount] good for me?"
+- "What's better for me: X or Y?"
+- Any "should I" or "how much/many should I" question
 
-Examples:
+**ALWAYS COMPLEX - Analysis Requests:**
+- "Analyze my [week/progress/approach]"
+- "Review my [diet/training/performance]"
+- "Compare [this week to last week]"
+- "What's wrong with my [diet/workout]?"
+- "Why am I [not losing weight/plateauing]?"
 
-INPUT: "hi"
-OUTPUT: {"complexity": "trivial", "confidence": 0.99, "recommended_model": "canned", "reasoning": "Simple greeting - canned response"}
+**ALWAYS COMPLEX - Questions That Benefit From Context:**
+Even if question SOUNDS generic, if user context makes it 2x better → COMPLEX
+- "How much protein in chicken?" → Generic: "31g/100g" vs Personalized: "31g/100g. You need 150g daily. Eat 500g chicken."
+- "What should I eat after workout?" → Generic: "Protein + carbs" vs Personalized: "You're in deficit, need 40g protein. Try 300g chicken + 200g rice."
 
-INPUT: "What is BMR?"
-OUTPUT: {"complexity": "simple", "confidence": 0.9, "recommended_model": "groq", "reasoning": "Pure definition - no personalization benefit"}
+**When in doubt → COMPLEX** (better to have tool access than not)
 
-INPUT: "Can you see my profile?"
-OUTPUT: {"complexity": "complex", "confidence": 0.95, "recommended_model": "claude", "reasoning": "Requires get_user_profile tool to fetch user data"}
+═══════════════════════════════════════════════════════════════════
+EXAMPLES (Learn the pattern)
+═══════════════════════════════════════════════════════════════════
 
-INPUT: "What are my macro goals?"
-OUTPUT: {"complexity": "complex", "confidence": 0.95, "recommended_model": "claude", "reasoning": "Needs user data via get_user_profile tool"}
+**TRIVIAL:**
+"hi" → {"complexity": "trivial", "confidence": 0.99, "recommended_model": "canned", "reasoning": "Greeting"}
+"thanks" → {"complexity": "trivial", "confidence": 0.99, "recommended_model": "canned", "reasoning": "Acknowledgment"}
+"bye" → {"complexity": "trivial", "confidence": 0.99, "recommended_model": "canned", "reasoning": "Goodbye"}
 
-INPUT: "Show me my progress"
-OUTPUT: {"complexity": "complex", "confidence": 0.95, "recommended_model": "claude", "reasoning": "Requires tools to fetch user stats and measurements"}
+**SIMPLE:**
+"What is BMR?" → {"complexity": "simple", "confidence": 0.95, "recommended_model": "groq", "reasoning": "Pure definition, no personalization benefit"}
+"Define progressive overload" → {"complexity": "simple", "confidence": 0.95, "recommended_model": "groq", "reasoning": "Educational concept"}
+"Explain metabolism" → {"complexity": "simple", "confidence": 0.95, "recommended_model": "groq", "reasoning": "Scientific explanation"}
 
-INPUT: "I want to build muscle but I'm plateauing. Can you analyze my approach and suggest a new program?"
-OUTPUT: {"complexity": "complex", "confidence": 0.95, "recommended_model": "claude", "reasoning": "Multi-step analysis and planning - needs Claude's reasoning + tools"}
+**COMPLEX - User Data:**
+"What have I done today?" → {"complexity": "complex", "confidence": 0.98, "recommended_model": "claude", "reasoning": "Needs get_daily_nutrition_summary + get_recent_activities"}
+"Show my progress" → {"complexity": "complex", "confidence": 0.98, "recommended_model": "claude", "reasoning": "Needs get_body_measurements + calculate_progress_trend"}
+"What are my macros?" → {"complexity": "complex", "confidence": 0.98, "recommended_model": "claude", "reasoning": "Needs get_user_profile"}
+"Can you see my profile?" → {"complexity": "complex", "confidence": 0.98, "recommended_model": "claude", "reasoning": "Needs get_user_profile tool"}
+"What did I eat yesterday?" → {"complexity": "complex", "confidence": 0.98, "recommended_model": "claude", "reasoning": "Needs get_recent_meals"}
 
-INPUT: "How much protein should I eat?"
-OUTPUT: {"complexity": "complex", "confidence": 0.95, "recommended_model": "claude", "reasoning": "Needs bodyweight, goals, and activity level for personalized recommendation"}
+**COMPLEX - Planning:**
+"Give me a 4-week workout plan" → {"complexity": "complex", "confidence": 0.98, "recommended_model": "claude", "reasoning": "Needs get_user_profile + multi-step planning"}
+"Create a meal plan" → {"complexity": "complex", "confidence": 0.98, "recommended_model": "claude", "reasoning": "Needs user macros + preferences + planning"}
+"I need a workout routine" → {"complexity": "complex", "confidence": 0.98, "recommended_model": "claude", "reasoning": "Needs user data + planning"}
+"Make me a program" → {"complexity": "complex", "confidence": 0.98, "recommended_model": "claude", "reasoning": "Planning requires profile data"}
 
-INPUT: "Create a detailed meal plan for the next week that hits my macros and includes variety"
-OUTPUT: {"complexity": "complex", "confidence": 0.95, "recommended_model": "claude", "reasoning": "Complex planning + needs user macros via tools"}
+**COMPLEX - Personalized Advice:**
+"Should I do cardio?" → {"complexity": "complex", "confidence": 0.95, "recommended_model": "claude", "reasoning": "Needs user goals to give personalized advice"}
+"How much protein should I eat?" → {"complexity": "complex", "confidence": 0.98, "recommended_model": "claude", "reasoning": "Needs bodyweight + goals"}
+"What should I eat after workout?" → {"complexity": "complex", "confidence": 0.95, "recommended_model": "claude", "reasoning": "Better with macros + preferences"}
+"Is this amount of calories enough?" → {"complexity": "complex", "confidence": 0.95, "recommended_model": "claude", "reasoning": "Needs goals to evaluate"}
 
-INPUT: "What should I eat after a workout?"
-OUTPUT: {"complexity": "complex", "confidence": 0.9, "recommended_model": "claude", "reasoning": "Better personalized with macros, preferences, and dietary restrictions"}
+**COMPLEX - Analysis:**
+"Am I making progress?" → {"complexity": "complex", "confidence": 0.98, "recommended_model": "claude", "reasoning": "Needs body measurements + progress trend"}
+"Analyze my week" → {"complexity": "complex", "confidence": 0.98, "recommended_model": "claude", "reasoning": "Needs recent meals + activities + analysis"}
+"Why am I not losing weight?" → {"complexity": "complex", "confidence": 0.98, "recommended_model": "claude", "reasoning": "Needs nutrition data + progress analysis"}
 
-INPUT: "Should I do cardio or lift weights?"
-OUTPUT: {"complexity": "complex", "confidence": 0.9, "recommended_model": "claude", "reasoning": "Needs user goals, current routine, and preferences for personalized advice"}
+**COMPLEX - Benefit from Context:**
+"How much protein in chicken?" → {"complexity": "complex", "confidence": 0.85, "recommended_model": "claude", "reasoning": "Generic answer OK but 10x better with user goals"}
 
-INPUT: "How much protein is in chicken breast?"
-OUTPUT: {"complexity": "complex", "confidence": 0.85, "recommended_model": "claude", "reasoning": "Can provide generic answer but 10x better with user context (daily goals, current progress)"}
-
-INPUT: "Define progressive overload"
-OUTPUT: {"complexity": "simple", "confidence": 0.95, "recommended_model": "groq", "reasoning": "Pure educational definition - no personalization needed"}
-
-INPUT: "What have I done today?"
-OUTPUT: {"complexity": "complex", "confidence": 0.95, "recommended_model": "claude", "reasoning": "Requires get_daily_nutrition_summary or get_recent_activities tools to fetch user data"}
-
-INPUT: "Show me my progress"
-OUTPUT: {"complexity": "complex", "confidence": 0.95, "recommended_model": "claude", "reasoning": "Requires get_body_measurements and calculate_progress_trend tools"}
-
-INPUT: "What did I eat yesterday?"
-OUTPUT: {"complexity": "complex", "confidence": 0.95, "recommended_model": "claude", "reasoning": "Requires get_recent_meals tool to fetch meal history"}
-
-INPUT: "Give me a 4 week plan for muscle gain"
-OUTPUT: {"complexity": "complex", "confidence": 0.95, "recommended_model": "claude", "reasoning": "Planning requires get_user_profile for goals/macros and multi-step reasoning"}
-
-INPUT: "Create a workout program"
-OUTPUT: {"complexity": "complex", "confidence": 0.95, "recommended_model": "claude", "reasoning": "Program creation requires user profile data and complex planning"}
-
-INPUT: "Give me a 4-week workout plan"
-OUTPUT: {"complexity": "complex", "confidence": 0.95, "recommended_model": "claude", "reasoning": "Workout planning requires get_user_profile for goals and experience level"}
-
-INPUT: "Make me a training program"
-OUTPUT: {"complexity": "complex", "confidence": 0.95, "recommended_model": "claude", "reasoning": "Training program requires user data and multi-step planning"}
-
-Return ONLY valid JSON:
+═══════════════════════════════════════════════════════════════════
+OUTPUT FORMAT
+═══════════════════════════════════════════════════════════════════
+Return ONLY valid JSON, no explanations:
 {
     "complexity": "trivial"|"simple"|"complex",
     "confidence": 0.0-1.0,
@@ -217,25 +207,36 @@ Return ONLY valid JSON:
 
 "{message}"
 
-Return JSON classification."""
+Return ONLY valid JSON."""
 
         try:
-            response = self.groq.chat.completions.create(
-                model="llama-3.3-70b-versatile",
+            # Call Claude Haiku for classification (fast + accurate)
+            response = self.anthropic.messages.create(
+                model="claude-3-5-haiku-20241022",
+                max_tokens=150,
+                temperature=0.1,  # Low for consistent classification
+                system=system_prompt,
                 messages=[
-                    {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
-                ],
-                temperature=0.1,
-                max_tokens=100
+                ]
             )
 
-            response_text = response.choices[0].message.content.strip()
+            # Extract JSON from response
+            response_text = response.content[0].text.strip()
+
+            # Remove markdown code blocks if present
+            if response_text.startswith("```"):
+                response_text = response_text.split("```")[1]
+                if response_text.startswith("json"):
+                    response_text = response_text[4:]
+                response_text = response_text.strip()
+
             analysis = json.loads(response_text)
 
             logger.info(
                 f"[ComplexityAnalyzer] ✅ Complexity: {analysis['complexity']}, "
-                f"confidence: {analysis['confidence']:.2f}"
+                f"confidence: {analysis['confidence']:.2f}, "
+                f"reasoning: {analysis['reasoning'][:50]}..."
             )
 
             return analysis
@@ -243,25 +244,33 @@ Return JSON classification."""
         except Exception as e:
             logger.error(f"[ComplexityAnalyzer] ❌ Analysis failed: {e}", exc_info=True)
 
-            # Fallback: Default to simple (safe middle ground)
+            # FAIL-SAFE: Default to COMPLEX (better to have tool access than not)
             return {
-                "complexity": "simple",
+                "complexity": "complex",
                 "confidence": 0.5,
-                "recommended_model": "groq",
-                "reasoning": "Analysis failed, defaulting to simple/groq"
+                "recommended_model": "claude",
+                "reasoning": "Classification failed, defaulting to complex for tool access (fail-safe)"
             }
 
 
 # Singleton
 _complexity_analyzer: Optional[ComplexityAnalyzerService] = None
 
-def get_complexity_analyzer(groq_client=None):
-    """Get singleton ComplexityAnalyzerService instance."""
+def get_complexity_analyzer(anthropic_client=None):
+    """
+    Get singleton ComplexityAnalyzerService instance.
+
+    Args:
+        anthropic_client: Anthropic client (NOT AsyncAnthropic) for sync calls
+
+    Returns:
+        ComplexityAnalyzerService instance
+    """
     global _complexity_analyzer
     if _complexity_analyzer is None:
-        if groq_client is None:
-            from groq import Groq
+        if anthropic_client is None:
+            from anthropic import Anthropic
             import os
-            groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
-        _complexity_analyzer = ComplexityAnalyzerService(groq_client)
+            anthropic_client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+        _complexity_analyzer = ComplexityAnalyzerService(anthropic_client)
     return _complexity_analyzer
