@@ -5,8 +5,9 @@ Handles user profile operations (requires authentication).
 """
 
 import structlog
-from fastapi import APIRouter, HTTPException, status, Depends
+from fastapi import APIRouter, HTTPException, status, Depends, Form
 from fastapi.responses import JSONResponse
+from typing import Optional
 
 from app.api.dependencies import get_current_user
 from app.services.supabase_service import supabase_service
@@ -120,24 +121,24 @@ async def get_my_profile(user: dict = Depends(get_current_user)) -> JSONResponse
     description="Update the authenticated user's profile data with automatic macro recalculation",
 )
 async def update_my_profile(
-    full_name: str = None,
-    age: int = None,
-    height_cm: float = None,
-    current_weight_kg: float = None,
-    goal_weight_kg: float = None,
-    primary_goal: str = None,
-    experience_level: str = None,
-    activity_level: str = None,
-    workout_frequency: int = None,
-    dietary_preference: str = None,
-    food_allergies: str = None,  # Accepts JSON string from form data
-    foods_to_avoid: str = None,  # Accepts JSON string from form data
-    meals_per_day: int = None,
-    cooks_regularly: bool = None,
-    sleep_hours: float = None,
-    stress_level: str = None,
-    unit_system: str = None,
-    timezone: str = None,
+    full_name: Optional[str] = Form(None),
+    age: Optional[int] = Form(None),
+    height_cm: Optional[float] = Form(None),
+    current_weight_kg: Optional[float] = Form(None),
+    goal_weight_kg: Optional[float] = Form(None),
+    primary_goal: Optional[str] = Form(None),
+    experience_level: Optional[str] = Form(None),
+    activity_level: Optional[str] = Form(None),
+    workout_frequency: Optional[int] = Form(None),
+    dietary_preference: Optional[str] = Form(None),
+    food_allergies: Optional[str] = Form(None),  # Accepts JSON string from form data
+    foods_to_avoid: Optional[str] = Form(None),  # Accepts JSON string from form data
+    meals_per_day: Optional[int] = Form(None),
+    cooks_regularly: Optional[bool] = Form(None),
+    sleep_hours: Optional[float] = Form(None),
+    stress_level: Optional[str] = Form(None),
+    unit_system: Optional[str] = Form(None),
+    timezone: Optional[str] = Form(None),
     user: dict = Depends(get_current_user)
 ) -> JSONResponse:
     """
