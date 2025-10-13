@@ -273,11 +273,11 @@ class UnifiedCoachService:
                     user_id=user_id,
                     conversation_id=conversation_id,
                     content=canned,
-                    ai_provider='canned',
+                    ai_provider='groq',  # TEMPORARY: Using 'groq' until migration 022 is applied
                     ai_model='pattern_matching',
                     tokens_used=0,
                     cost_usd=0.0,
-                    context_used={'complexity': 'trivial'}
+                    context_used={'complexity': 'trivial', 'is_canned': True}
                 )
 
                 if background_tasks:
@@ -380,11 +380,11 @@ class UnifiedCoachService:
                     user_id=user_id,
                     conversation_id=conversation_id,
                     content=quick_ack,
-                    ai_provider='system',
+                    ai_provider='groq',  # TEMPORARY: Using 'groq' until migration 022 is applied
                     ai_model='quick_ack',
                     tokens_used=0,
                     cost_usd=0.0,
-                    context_used={"is_temporary_ack": True}
+                    context_used={"is_temporary_ack": True, "is_system": True}
                 )
 
                 # TODO: If WebSocket/SSE is implemented, push this ACK immediately to frontend
