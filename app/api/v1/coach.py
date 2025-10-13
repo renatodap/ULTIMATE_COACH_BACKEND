@@ -122,11 +122,11 @@ async def send_message(
             conversation_id=conversation_id,
             content=response_content,
             classification={"is_log": False, "is_chat": True, "confidence": 1.0},
-            complexity="simple",
+            complexity=None,  # No complexity analysis in stub mode
             quick_entry_id=None,
             should_show_preview=False,
             tool_calls=[],
-            model_used=None,  # NULL in stub mode
+            model_used="stub",  # Stub mode identifier
             response_time_ms=response_time_ms,
             cost_usd=0.0,
             tokens_used=0,
