@@ -1148,3 +1148,13 @@ class SupabaseService:
 
 # Global singleton instance
 supabase_service = SupabaseService()
+
+
+def get_service_client() -> Client:
+    """
+    Get the raw Supabase client for services that need direct access.
+
+    Returns:
+        Supabase Client instance
+    """
+    return supabase_service.client
