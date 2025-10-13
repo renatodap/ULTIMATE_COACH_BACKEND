@@ -281,3 +281,5 @@ wheel==0.45.1
 wrapt==1.17.3
 wsproto==1.2.0
 zstandard==0.25.0
+groq==0.16.0
+langdetect==1.0.9

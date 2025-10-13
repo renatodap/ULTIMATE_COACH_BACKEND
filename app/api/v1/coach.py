@@ -31,12 +31,15 @@ from app.services.supabase_service import supabase_service
 from app.services.nutrition_service import nutrition_service
 from app.services.activity_service import activity_service
 from app.services.body_metrics_service import body_metrics_service
-from app.services.coach_ai_service import coach_ai_service
+from app.services.unified_coach_service import get_unified_coach_service
 from uuid import UUID
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/coach", tags=["coach"])
+
+# Initialize UnifiedCoachService (singleton)
+unified_coach = get_unified_coach_service()
 
 
 # ============================================================================
@@ -124,126 +127,30 @@ async def send_message(
     """
     Send a message to the AI coach.
 
-    Currently returns friendly messages while AI features are being enhanced.
-    Saves all messages to conversation history.
+    Powered by UnifiedCoachService with:
+    - Groq classification (fast, cheap)
+    - Claude chat with agentic tools
+    - Prompt injection protection
+    - 3-tier memory system
+    - Multi-language support
     """
     try:
-        start_time = datetime.utcnow()
         user_id = current_user["id"]
 
         logger.info(f"[CoachAPI] 📨 Message from user {user_id[:8]}...")
 
-        # Create or get conversation
-        conversation_id = request.conversation_id
-        if not conversation_id:
-            conv_result = supabase.table("coach_conversations").insert({
-                "user_id": user_id,
-                "title": "New Conversation",
-                "message_count": 0
-            }).execute()
-            conversation_id = conv_result.data[0]["id"]
-
-        # Save user message
-        user_msg_result = supabase.table("coach_messages").insert({
-            "conversation_id": conversation_id,
-            "user_id": user_id,
-            "role": "user",
-            "content": request.message
-        }).execute()
-
-        # Classify message with AI (no user context - that's for personalized responses)
-        classification, structured_data, confidence = await coach_ai_service.classify_and_extract(
-            message=request.message
+        # Process message through UnifiedCoachService (THE BRAIN)
+        result = await unified_coach.process_message(
+            user_id=user_id,
+            message=request.message,
+            conversation_id=request.conversation_id,
+            image_base64=None,  # Future: handle image uploads
+            background_tasks=background_tasks
         )
 
-        logger.info(
-            f"[CoachAPI] Message classified: {classification} "
-            f"(confidence: {confidence:.2f})"
-        )
+        logger.info(f"[CoachAPI] ✅ Response ready")
 
-        # Handle log detection
-        if classification in ["meal", "activity", "measurement"] and confidence >= 0.7:
-            # Create quick_entry_log
-            quick_entry_result = supabase.table("quick_entry_logs").insert({
-                "user_id": user_id,
-                "conversation_id": conversation_id,
-                "user_message_id": user_msg_result.data[0]["id"],
-                "log_type": classification,
-                "structured_data": structured_data,
-                "confidence": confidence,
-                "status": "pending"
-            }).execute()
-
-            quick_entry_id = quick_entry_result.data[0]["id"]
-
-            # Generate confirmation response
-            response_content = _generate_log_confirmation_message(
-                classification, structured_data
-            )
-
-            # Save AI message
-            ai_msg_result = supabase.table("coach_messages").insert({
-                "conversation_id": conversation_id,
-                "user_id": user_id,
-                "role": "assistant",
-                "content": response_content,
-                "ai_provider": "anthropic",
-                "ai_model": "claude-3-5-sonnet-20241022",
-                "tokens_used": 0,  # Will be updated if we track
-                "cost_usd": 0.0,
-                "quick_entry_id": quick_entry_id
-            }).execute()
-
-            message_id = ai_msg_result.data[0]["id"]
-
-            # Return log preview
-            log_preview = {
-                "id": quick_entry_id,
-                "type": classification,
-                "data": structured_data,
-                "confidence": confidence
-            }
-
-        else:
-            # Chat response
-            response_content = _generate_chat_response(request.message)
-
-            # Save AI message
-            ai_msg_result = supabase.table("coach_messages").insert({
-                "conversation_id": conversation_id,
-                "user_id": user_id,
-                "role": "assistant",
-                "content": response_content,
-                "ai_provider": "anthropic" if coach_ai_service.client else None,
-                "ai_model": "claude-3-5-sonnet-20241022" if coach_ai_service.client else None,
-                "tokens_used": 0,
-                "cost_usd": 0.0
-            }).execute()
-
-            message_id = ai_msg_result.data[0]["id"]
-            log_preview = None
-
-        # Calculate response time
-        end_time = datetime.utcnow()
-        response_time_ms = int((end_time - start_time).total_seconds() * 1000)
-
-        logger.info(
-            f"[CoachAPI] ✅ Response ready: {response_time_ms}ms"
-        )
-
-        # Build response matching frontend expectations
-        return {
-            "success": True,
-            "conversation_id": conversation_id,
-            "message_id": message_id,
-            "message": response_content,  # Frontend expects "message" not "content"
-            "is_log_preview": log_preview is not None,  # True if we detected a log
-            "log_preview": log_preview,  # Contains log data if detected
-            "tokens_used": 0,
-            "cost_usd": 0.0,
-            "model": "claude-3-5-sonnet" if coach_ai_service.client else "fallback",
-            "tools_used": []
-        }
+        return result
 
     except Exception as e:
         logger.error(f"[CoachAPI] ❌ Message processing failed: {e}", exc_info=True)
