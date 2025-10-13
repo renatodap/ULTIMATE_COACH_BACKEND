@@ -59,6 +59,50 @@ class ComplexityAnalyzerService:
                 "reasoning": "Image requires multimodal model (Claude)"
             }
 
+        # FAST PRE-CHECK: Pattern matching for obvious cases (skip LLM for speed + accuracy)
+        message_lower = message.lower()
+
+        # User data query patterns (ALWAYS complex)
+        user_data_patterns = [
+            "what have i", "what did i", "show my", "show me my",
+            "what are my", "can you see my", "my progress", "my goals",
+            "my stats", "my macros", "my profile"
+        ]
+        for pattern in user_data_patterns:
+            if pattern in message_lower:
+                return {
+                    "complexity": "complex",
+                    "confidence": 0.98,
+                    "recommended_model": "claude",
+                    "reasoning": f"User data query pattern detected: '{pattern}' requires tools"
+                }
+
+        # Planning request patterns (ALWAYS complex)
+        planning_patterns = [
+            "give me a plan", "give me a workout", "give me a program",
+            "create a plan", "create a workout", "create a program",
+            "make me a plan", "make me a workout", "make me a program",
+            "build me a", "design a"
+        ]
+        for pattern in planning_patterns:
+            if pattern in message_lower:
+                return {
+                    "complexity": "complex",
+                    "confidence": 0.98,
+                    "recommended_model": "claude",
+                    "reasoning": f"Planning request detected: '{pattern}' requires user data + reasoning"
+                }
+
+        # Planning with duration patterns (ALWAYS complex)
+        import re
+        if re.search(r'(week|day|month)\s+(plan|program|workout|training)', message_lower):
+            return {
+                "complexity": "complex",
+                "confidence": 0.98,
+                "recommended_model": "claude",
+                "reasoning": "Multi-week planning requires user profile data and structured planning"
+            }
+
         system_prompt = """You are a query complexity analyzer for an AI fitness coach.
 
 Classify queries into three categories:
@@ -154,6 +198,12 @@ OUTPUT: {"complexity": "complex", "confidence": 0.95, "recommended_model": "clau
 
 INPUT: "Create a workout program"
 OUTPUT: {"complexity": "complex", "confidence": 0.95, "recommended_model": "claude", "reasoning": "Program creation requires user profile data and complex planning"}
+
+INPUT: "Give me a 4-week workout plan"
+OUTPUT: {"complexity": "complex", "confidence": 0.95, "recommended_model": "claude", "reasoning": "Workout planning requires get_user_profile for goals and experience level"}
+
+INPUT: "Make me a training program"
+OUTPUT: {"complexity": "complex", "confidence": 0.95, "recommended_model": "claude", "reasoning": "Training program requires user data and multi-step planning"}
 
 Return ONLY valid JSON:
 {
