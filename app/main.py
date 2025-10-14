@@ -157,6 +157,17 @@ async def global_exception_handler(request, exc):
         exc_info=True,
     )
 
+    # Get origin from request for CORS headers
+    origin = request.headers.get("origin", "http://localhost:3000")
+
+    # Add CORS headers to error response
+    headers = {
+        "Access-Control-Allow-Origin": origin if origin in settings.cors_origins_list else settings.cors_origins_list[0],
+        "Access-Control-Allow-Credentials": "true",
+        "Access-Control-Allow-Methods": "*",
+        "Access-Control-Allow-Headers": "*",
+    }
+
     if settings.is_development:
         return JSONResponse(
             status_code=500,
@@ -165,11 +176,13 @@ async def global_exception_handler(request, exc):
                 "detail": str(exc),
                 "type": type(exc).__name__,
             },
+            headers=headers,
         )
 
     return JSONResponse(
         status_code=500,
         content={"error": "Internal Server Error"},
+        headers=headers,
     )
 
 
@@ -196,9 +209,21 @@ async def nutrition_error_handler(request, exc: NutritionError):
         method=request.method,
     )
 
+    # Get origin from request for CORS headers
+    origin = request.headers.get("origin", "http://localhost:3000")
+
+    # Add CORS headers to error response
+    headers = {
+        "Access-Control-Allow-Origin": origin if origin in settings.cors_origins_list else settings.cors_origins_list[0],
+        "Access-Control-Allow-Credentials": "true",
+        "Access-Control-Allow-Methods": "*",
+        "Access-Control-Allow-Headers": "*",
+    }
+
     return JSONResponse(
         status_code=exc.status_code,
         content=exc.to_dict(),
+        headers=headers,
     )
 
 

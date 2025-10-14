@@ -1,7 +1,12 @@
-# PRODUCTION FIX REQUIRED - Anthropic SDK Version
+# 🚨 URGENT PRODUCTION FIX REQUIRED - Anthropic SDK Version
 
-## Issue
+## ❌ CRITICAL ISSUE - USERS CANNOT GET RESPONSES
 Production server has an outdated version of the `anthropic` Python package that doesn't support the `.messages.create()` API.
+
+**USER IMPACT: ALL COACH QUERIES ARE FAILING**
+- Users see: "I'm having trouble responding right now. Please try again."
+- NO responses are being generated
+- System is completely broken for coach functionality
 
 ## Error Messages
 ```
@@ -10,9 +15,11 @@ AttributeError: 'AsyncAnthropic' object has no attribute 'messages'
 ```
 
 ## Impact
-- Classification is falling back to default "complex" routing (system still works but logs errors)
-- Claude Haiku classification is not running (wastes ~$0.0002 per query)
-- All queries route to Claude 3.5 Sonnet (more expensive than necessary)
+- ❌ **ALL coach chat queries fail with error**
+- ❌ **Users cannot get any responses from the coach**
+- ❌ **Complete service outage for coach feature**
+- ⚠️ Quick ACK messages are saved but real responses never come
+- ⚠️ Classification falls back to "complex" but then fails on Claude call
 
 ## Fix Required (On Production Server)
 

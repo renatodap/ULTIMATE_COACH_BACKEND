@@ -5,15 +5,16 @@ Handles business logic for creating, reading, updating, and deleting activities.
 Calculates daily summaries and manages activity-specific metrics.
 """
 
-import logging
+import structlog
 from typing import Dict, Any, List, Optional
 from uuid import UUID
 from datetime import datetime, date, timedelta
 from fastapi import HTTPException, status
 
 from app.services.supabase_service import SupabaseService
+from app.services.calorie_calculator import estimate_activity_calories
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()  # Force reload
 
 
 class ActivityService:
@@ -260,8 +261,8 @@ class ActivityService:
         start_time: datetime,
         end_time: Optional[datetime],
         duration_minutes: Optional[int],
-        calories_burned: int,
-        intensity_mets: float,
+        calories_burned: Optional[int],
+        intensity_mets: Optional[float],
         metrics: Dict[str, Any],
         notes: Optional[str]
     ) -> Dict[str, Any]:
@@ -275,8 +276,8 @@ class ActivityService:
             start_time: Start timestamp
             end_time: End timestamp (optional)
             duration_minutes: Duration (optional if end_time provided)
-            calories_burned: Calories burned
-            intensity_mets: Intensity level (METs)
+            calories_burned: Calories burned (optional, will be auto-calculated)
+            intensity_mets: Intensity level in METs (optional, will be auto-looked-up)
             metrics: Category-specific metrics (JSONB)
             notes: User notes
 
@@ -291,6 +292,50 @@ class ActivityService:
             # Ensure duration is set
             if not duration_minutes:
                 raise ValueError("Either duration_minutes or end_time must be provided")
+
+            # Auto-calculate calories if not provided
+            if calories_burned is None or intensity_mets is None:
+                # Get user's weight from profile
+                profile = await self.db.get_profile(user_id)
+                user_weight_kg = profile.get('current_weight_kg') if profile else None
+
+                if user_weight_kg is None:
+                    logger.warning(
+                        "no_user_weight_for_calorie_calculation",
+                        user_id=str(user_id)
+                    )
+                    # Use average weight as fallback (70kg)
+                    user_weight_kg = 70.0
+
+                # Estimate calories using calorie calculator
+                estimation = estimate_activity_calories(
+                    activity_name=activity_name,
+                    category=category,
+                    duration_minutes=duration_minutes,
+                    weight_kg=user_weight_kg,
+                    user_provided_mets=intensity_mets  # Will be None if not provided
+                )
+
+                # Use calculated values if not provided by user
+                if calories_burned is None:
+                    calories_burned = estimation['calories']
+                    logger.info(
+                        "calories_auto_calculated",
+                        user_id=str(user_id),
+                        activity_name=activity_name,
+                        calories=calories_burned,
+                        method=estimation['method']
+                    )
+
+                if intensity_mets is None:
+                    intensity_mets = estimation['mets']
+                    logger.info(
+                        "mets_auto_looked_up",
+                        user_id=str(user_id),
+                        activity_name=activity_name,
+                        mets=intensity_mets,
+                        matched_activity=estimation['matched_activity']
+                    )
 
             activity_data = {
                 'user_id': str(user_id),

@@ -30,7 +30,7 @@ def validate_anthropic_sdk() -> Optional[str]:
             sync_client = anthropic.Anthropic(api_key="dummy_key_for_validation")
             if not hasattr(sync_client, 'messages'):
                 error_msg = f"Sync client missing 'messages' attribute (v{sdk_version})"
-                logger.error(f"[SDK] ❌ {error_msg}")
+                logger.error(f"[SDK] [FAIL] {error_msg}")
                 return error_msg
         except Exception as e:
             error_msg = f"Failed to create sync client: {str(e)}"
@@ -42,14 +42,14 @@ def validate_anthropic_sdk() -> Optional[str]:
             async_client = anthropic.AsyncAnthropic(api_key="dummy_key_for_validation")
             if not hasattr(async_client, 'messages'):
                 error_msg = f"Async client missing 'messages' attribute (v{sdk_version})"
-                logger.error(f"[SDK] ❌ {error_msg}")
+                logger.error(f"[SDK] [FAIL] {error_msg}")
                 return error_msg
         except Exception as e:
             error_msg = f"Failed to create async client: {str(e)}"
             logger.error(f"[SDK] ❌ {error_msg}")
             return error_msg
 
-        logger.info(f"[SDK] ✅ Anthropic SDK validated successfully (v{sdk_version})")
+        logger.info(f"[SDK] [OK] Anthropic SDK validated successfully (v{sdk_version})")
         return None
 
     except ImportError as e:

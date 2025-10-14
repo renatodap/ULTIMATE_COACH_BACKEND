@@ -44,17 +44,17 @@ class ActivityBase(BaseModel):
         le=1440,  # Max 24 hours
         description="Duration in minutes (calculated from times or manual)"
     )
-    calories_burned: int = Field(
-        ...,
+    calories_burned: Optional[int] = Field(
+        None,
         ge=0,
         le=10000,  # Sanity check
-        description="Calories burned during activity"
+        description="Calories burned during activity (calculated automatically if not provided)"
     )
-    intensity_mets: float = Field(
-        ...,
+    intensity_mets: Optional[float] = Field(
+        None,
         ge=1.0,
         le=20.0,
-        description="Metabolic Equivalent of Task (1.0=rest, 8.0=running)"
+        description="Metabolic Equivalent of Task (looked up automatically if not provided)"
     )
     metrics: Dict[str, Any] = Field(
         default_factory=dict,
@@ -99,6 +99,10 @@ class ActivityBase(BaseModel):
         Provides category-specific validation to catch unrealistic intensity values.
         Logs warnings for values outside typical range but allows them (user may have edge cases).
         """
+        # If METs not provided, it will be calculated automatically
+        if v is None:
+            return v
+
         category = values.get('category')
         if not category:
             return v  # Category validation will catch this

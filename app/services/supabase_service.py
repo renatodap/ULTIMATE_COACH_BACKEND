@@ -410,6 +410,28 @@ class SupabaseService:
     # ACTIVITIES
     # ========================================================================
 
+    # Field mapping: API fields <-> Database fields
+    # Database has: name, activity_type (legacy)
+    # API expects: activity_name, category (consistent with models)
+
+    def _map_activity_to_db(self, activity_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Map API fields to database fields before insert/update"""
+        mapped = activity_data.copy()
+        if 'activity_name' in mapped:
+            mapped['name'] = mapped.pop('activity_name')
+        if 'category' in mapped:
+            mapped['activity_type'] = mapped.pop('category')
+        return mapped
+
+    def _map_activity_from_db(self, activity_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Map database fields to API fields after select"""
+        mapped = activity_data.copy()
+        if 'name' in mapped:
+            mapped['activity_name'] = mapped.pop('name')
+        if 'activity_type' in mapped:
+            mapped['category'] = mapped.pop('activity_type')
+        return mapped
+
     async def get_user_activities(
         self,
         user_id: UUID,
@@ -448,7 +470,9 @@ class SupabaseService:
                 query = query.lte("start_time", end_date)
 
             response = query.execute()
-            return response.data
+            # Map database fields to API fields
+            activities = [self._map_activity_from_db(activity) for activity in response.data]
+            return activities
         except Exception as e:
             logger.error(f"Failed to get activities for user {user_id}: {e}")
             return []
@@ -464,9 +488,12 @@ class SupabaseService:
             Created activity dict
         """
         try:
-            response = self.client.table("activities").insert(activity_data).execute()
+            # Map API fields to database fields before insert
+            db_data = self._map_activity_to_db(activity_data)
+            response = self.client.table("activities").insert(db_data).execute()
             logger.info(f"Created activity for user {activity_data.get('user_id')}")
-            return response.data[0]
+            # Map database fields back to API fields in response
+            return self._map_activity_from_db(response.data[0])
         except Exception as e:
             logger.error(f"Failed to create activity: {e}")
             raise
@@ -490,7 +517,10 @@ class SupabaseService:
                 .single()
                 .execute()
             )
-            return response.data
+            # Map database fields to API fields
+            if response.data:
+                return self._map_activity_from_db(response.data)
+            return None
         except Exception as e:
             logger.error(f"Failed to get activity {activity_id}: {e}")
             return None
@@ -513,9 +543,11 @@ class SupabaseService:
             Updated activity dict
         """
         try:
+            # Map API fields to database fields before update
+            db_updates = self._map_activity_to_db(updates)
             response = (
                 self.client.table("activities")
-                .update(updates)
+                .update(db_updates)
                 .eq("id", str(activity_id))
                 .eq("user_id", str(user_id))
                 .execute()
@@ -526,7 +558,8 @@ class SupabaseService:
                 raise RuntimeError("Failed to update activity - no data returned")
 
             logger.info(f"Updated activity {activity_id}")
-            return response.data[0]
+            # Map database fields back to API fields in response
+            return self._map_activity_from_db(response.data[0])
         except Exception as e:
             logger.error(f"Failed to update activity {activity_id}: {e}")
             raise
