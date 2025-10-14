@@ -89,9 +89,10 @@ class UnifiedCoachService:
         if not hasattr(anthropic_client, 'messages'):
             error_msg = "AsyncAnthropic client missing 'messages' attribute - SDK may be corrupted"
             logger.error(f"[UnifiedCoach] ❌ {error_msg}")
-            raise RuntimeError(error_msg)
-
-        self.anthropic = anthropic_client
+            logger.warning("[UnifiedCoach] ⚠️ Running in DEGRADED MODE - Claude features unavailable")
+            self.anthropic = None  # Degraded mode
+        else:
+            self.anthropic = anthropic_client
 
         logger.info("[UnifiedCoach] ✅ Initialized")
 
@@ -389,6 +390,39 @@ class UnifiedCoachService:
         Handle chat with Claude + Agentic Tools.
         """
         logger.info(f"[UnifiedCoach.claude] 🧠 START")
+
+        # DEGRADED MODE: SDK corrupted, return error message
+        if self.anthropic is None:
+            logger.error("[UnifiedCoach.claude] ❌ Claude unavailable - SDK corrupted")
+
+            error_msg = self.i18n.t(
+                'error.service_degraded',
+                user_language
+            ) if hasattr(self, 'i18n') else "AI Coach is temporarily unavailable due to a system error. Please try again later."
+
+            ai_message_id = await self._save_ai_message(
+                user_id=user_id,
+                conversation_id=conversation_id,
+                content=error_msg,
+                ai_provider='system',
+                ai_model='error',
+                tokens_used=0,
+                cost_usd=0.0,
+                context_used={"error": "anthropic_sdk_corrupted"}
+            )
+
+            return {
+                "success": False,
+                "error": "AI Coach temporarily unavailable - SDK error",
+                "conversation_id": conversation_id,
+                "message_id": ai_message_id,
+                "is_log_preview": False,
+                "message": error_msg,
+                "tokens_used": 0,
+                "cost_usd": 0.0,
+                "model": "error",
+                "complexity": "error"
+            }
 
         try:
             from app.services.tool_service import COACH_TOOLS

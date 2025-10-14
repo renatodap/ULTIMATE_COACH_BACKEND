@@ -38,10 +38,11 @@ class ComplexityAnalyzerService:
         if not hasattr(anthropic_client, 'messages'):
             error_msg = "Anthropic client missing 'messages' attribute - SDK may be corrupted"
             logger.error(f"[ComplexityAnalyzer] ❌ {error_msg}")
-            raise RuntimeError(error_msg)
-
-        self.anthropic = anthropic_client
-        logger.info("[ComplexityAnalyzer] ✅ Initialized with valid Anthropic client")
+            logger.warning("[ComplexityAnalyzer] ⚠️ Running in DEGRADED MODE - will default all queries to 'complex'")
+            self.anthropic = None  # Degraded mode
+        else:
+            self.anthropic = anthropic_client
+            logger.info("[ComplexityAnalyzer] ✅ Initialized with valid Anthropic client")
 
     async def analyze_complexity(
         self,
@@ -64,6 +65,16 @@ class ComplexityAnalyzerService:
             }
         """
         logger.info(f"[ComplexityAnalyzer] 🧠 Analyzing: '{message[:50]}...'")
+
+        # DEGRADED MODE: SDK corrupted, default to complex
+        if self.anthropic is None:
+            logger.warning("[ComplexityAnalyzer] ⚠️ Degraded mode - defaulting to 'complex'")
+            return {
+                "complexity": "complex",
+                "confidence": 0.5,
+                "recommended_model": "claude",
+                "reasoning": "SDK unavailable - defaulting to complex for tool access (degraded mode)"
+            }
 
         # Images always require Claude (multimodal)
         if has_image:
