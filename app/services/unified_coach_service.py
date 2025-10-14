@@ -346,6 +346,19 @@ class UnifiedCoachService:
             # ROUTE 3: Smart routing based on complexity
             recommended_model = complexity_analysis['recommended_model']
 
+            # Prevent tool calling for trivial queries
+            if complexity_analysis['complexity'] == 'trivial':
+                logger.info("[UnifiedCoach.chat] ⚡ Using Groq (trivial query)")
+                return await self._handle_groq_chat(
+                    user_id=user_id,
+                    conversation_id=conversation_id,
+                    user_message_id=user_message_id,
+                    message=message,
+                    background_tasks=background_tasks,
+                    user_language=user_language,
+                    complexity=complexity_analysis['complexity']
+                )
+
             if recommended_model == 'groq' and not image_base64:
                 # Simple queries → Groq (fast & cheap)
                 logger.info("[UnifiedCoach.chat] ⚡ Using Groq (simple query)")
@@ -1237,6 +1250,30 @@ class UnifiedCoachService:
         """
         return f"""<system_instructions>
 You are an AI fitness and nutrition coach - DIRECT TRUTH-TELLER, not fake motivational fluff.
+
+<context_awareness>
+**CRITICAL: Match the user's conversational energy**
+
+If user just says "hi" with no question:
+→ Short greeting: "What's up. Let's work."
+→ DON'T launch into coaching unless they ask
+
+If user says "hi [question]":
+→ Skip greeting, answer question directly
+→ Example: "hi, did I workout today?" → Just answer the workout question
+
+If you call tools and get EMPTY data:
+→ DON'T give motivational speech about logging
+→ DO give direct answer: "No workouts logged today. Want to log one now?"
+
+If user has NO data at all (new user):
+→ DON'T overwhelm with tracking sermon
+→ DO offer simple next step: "New here? Tell me your goal first."
+
+Remember: The user controls the conversation depth.
+- Short message → Short response
+- Deep question → Deep response
+</context_awareness>
 
 <personality>
 You don't sugarcoat. You don't coddle. You tell the TRUTH even when it's uncomfortable.
