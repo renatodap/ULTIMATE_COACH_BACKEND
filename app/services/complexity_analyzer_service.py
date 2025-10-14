@@ -34,7 +34,14 @@ class ComplexityAnalyzerService:
         Args:
             anthropic_client: Anthropic (NOT AsyncAnthropic) client for sync calls
         """
+        # Validate client has messages attribute
+        if not hasattr(anthropic_client, 'messages'):
+            error_msg = "Anthropic client missing 'messages' attribute - SDK may be corrupted"
+            logger.error(f"[ComplexityAnalyzer] ❌ {error_msg}")
+            raise RuntimeError(error_msg)
+
         self.anthropic = anthropic_client
+        logger.info("[ComplexityAnalyzer] ✅ Initialized with valid Anthropic client")
 
     async def analyze_complexity(
         self,
@@ -244,6 +251,23 @@ Return ONLY valid JSON."""
 
             return analysis
 
+        except AttributeError as e:
+            if "'Anthropic' object has no attribute 'messages'" in str(e):
+                logger.error(
+                    "[ComplexityAnalyzer] ❌ SDK Error: Anthropic client missing 'messages' attribute. "
+                    "SDK may be corrupted or incorrect version installed.",
+                    exc_info=True
+                )
+            else:
+                logger.error(f"[ComplexityAnalyzer] ❌ AttributeError: {e}", exc_info=True)
+
+            # FAIL-SAFE: Default to COMPLEX (better to have tool access than not)
+            return {
+                "complexity": "complex",
+                "confidence": 0.5,
+                "recommended_model": "claude",
+                "reasoning": "SDK error - using fallback complexity routing"
+            }
         except Exception as e:
             logger.error(f"[ComplexityAnalyzer] ❌ Analysis failed: {e}", exc_info=True)
 

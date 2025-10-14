@@ -84,6 +84,13 @@ class UnifiedCoachService:
 
         # AI clients
         self.groq = groq_client
+
+        # Validate AsyncAnthropic client
+        if not hasattr(anthropic_client, 'messages'):
+            error_msg = "AsyncAnthropic client missing 'messages' attribute - SDK may be corrupted"
+            logger.error(f"[UnifiedCoach] ❌ {error_msg}")
+            raise RuntimeError(error_msg)
+
         self.anthropic = anthropic_client
 
         logger.info("[UnifiedCoach] ✅ Initialized")

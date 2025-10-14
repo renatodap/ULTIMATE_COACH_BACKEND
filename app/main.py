@@ -60,6 +60,23 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         log_level=settings.LOG_LEVEL,
     )
 
+    # Validate Anthropic SDK installation
+    from app.utils.sdk_validator import validate_anthropic_sdk
+
+    sdk_error = validate_anthropic_sdk()
+    if sdk_error:
+        logger.error(
+            "anthropic_sdk_validation_failed",
+            error=sdk_error,
+            environment=settings.ENVIRONMENT
+        )
+        logger.warning(
+            "anthropic_features_degraded",
+            message="AI Coach features may be unavailable or use fallback behavior"
+        )
+    else:
+        logger.info("anthropic_sdk_validated", message="All AI features operational")
+
     # Initialize Sentry if configured (only in production)
     if settings.SENTRY_DSN and not settings.is_development:
         try:
