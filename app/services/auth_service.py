@@ -46,24 +46,25 @@ class AuthService:
             Exception: If signup fails
         """
         try:
-            # Create user in Supabase Auth
-            auth_response = supabase_service.client.auth.sign_up({
-                "email": email,
-                "password": password,
-            })
+            # Create user in Supabase Auth, passing full_name as metadata
+            # A trigger in Supabase will create the user profile
+            auth_response = supabase_service.client.auth.sign_up(
+                {
+                    "email": email,
+                    "password": password,
+                    "options": {
+                        "data": {
+                            "full_name": full_name,
+                            "onboarding_completed": False,
+                        }
+                    },
+                }
+            )
 
             if not auth_response.user:
                 raise ValueError("Failed to create user account")
 
             user_id = UUID(auth_response.user.id)
-
-            # Create user profile
-            profile_data = {
-                "full_name": full_name,
-                "onboarding_completed": False,
-            }
-
-            await supabase_service.create_profile(user_id, profile_data)
 
             logger.info(f"User signed up successfully: {email}")
 
