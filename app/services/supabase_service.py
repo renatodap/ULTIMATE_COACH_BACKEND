@@ -411,24 +411,34 @@ class SupabaseService:
     # ========================================================================
 
     # Field mapping: API fields <-> Database fields
-    # Database has: name, activity_type (legacy)
+    # Database now uses: activity_name, category (migration 012)
     # API expects: activity_name, category (consistent with models)
 
     def _map_activity_to_db(self, activity_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Map API fields to database fields before insert/update"""
+        """Normalize activity fields to current DB schema (post-migration 012).
+
+        Accepts legacy input keys (name, activity_type) and converts them to
+        the current schema (activity_name, category).
+        """
         mapped = activity_data.copy()
-        if 'activity_name' in mapped:
-            mapped['name'] = mapped.pop('activity_name')
-        if 'category' in mapped:
-            mapped['activity_type'] = mapped.pop('category')
+        # Convert legacy input keys to new schema keys if present
+        if 'name' in mapped and 'activity_name' not in mapped:
+            mapped['activity_name'] = mapped.pop('name')
+        if 'activity_type' in mapped and 'category' not in mapped:
+            mapped['category'] = mapped.pop('activity_type')
         return mapped
 
     def _map_activity_from_db(self, activity_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Map database fields to API fields after select"""
+        """Normalize database fields to API fields after select.
+
+        Handles legacy DB columns (name, activity_type) by mapping them to
+        current API fields (activity_name, category). If the DB is already on
+        the new schema, this is a no-op.
+        """
         mapped = activity_data.copy()
-        if 'name' in mapped:
+        if 'name' in mapped and 'activity_name' not in mapped:
             mapped['activity_name'] = mapped.pop('name')
-        if 'activity_type' in mapped:
+        if 'activity_type' in mapped and 'category' not in mapped:
             mapped['category'] = mapped.pop('activity_type')
         return mapped
 

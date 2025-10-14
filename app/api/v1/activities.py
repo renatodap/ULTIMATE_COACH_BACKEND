@@ -249,12 +249,13 @@ async def create_activity(
     - **category**: Activity category (cardio_steady_state, strength_training, etc.)
     - **activity_name**: Custom name for the activity
     - **start_time**: When the activity started (ISO 8601)
-    - **calories_burned**: Calories burned during activity
-    - **intensity_mets**: Metabolic Equivalent of Task (1.0-20.0)
+    - One of: **duration_minutes** OR **end_time** (service will calculate duration if end_time is provided)
 
     Optional fields:
-    - **end_time**: When the activity ended
-    - **duration_minutes**: Duration (calculated from times if not provided)
+    - **end_time**: When the activity ended (required if duration_minutes not provided)
+    - **duration_minutes**: Duration in minutes (required if end_time not provided)
+    - **calories_burned**: If omitted, auto-calculated based on category, duration, and user weight
+    - **intensity_mets**: If omitted, auto-looked-up/estimated for the category
     - **metrics**: Activity-specific metrics (distance, HR, exercises, etc.)
     - **notes**: User notes
     """
