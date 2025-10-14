@@ -146,7 +146,7 @@ Return JSON classification."""
 
         try:
             # Call Groq
-            response = self.groq.chat.completions.create(
+            response = await self.groq.chat.completions.create(
                 model="llama-3.3-70b-versatile",
                 messages=[
                     {"role": "system", "content": system_prompt},
