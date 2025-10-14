@@ -73,10 +73,17 @@ class UnifiedCoachService:
         self.tool_service = get_tool_service(supabase_client)
 
         # Create sync Anthropic client for complexity analyzer (uses sync API calls)
-        from anthropic import Anthropic
-        import os
-        sync_anthropic_client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-        self.complexity_analyzer = get_complexity_analyzer(sync_anthropic_client)
+        try:
+            from anthropic import Anthropic
+            import os
+            api_key = os.getenv("ANTHROPIC_API_KEY")
+            if not api_key:
+                raise ValueError("ANTHROPIC_API_KEY not set")
+            sync_anthropic_client = Anthropic(api_key=api_key)
+            self.complexity_analyzer = get_complexity_analyzer(sync_anthropic_client)
+        except Exception as e:
+            logger.error("complexity_analyzer_init_failed", error=str(e), exc_info=True)
+            raise
 
         self.security = get_security_service(self.cache)
         self.formatter = get_response_formatter(groq_client)
@@ -84,17 +91,9 @@ class UnifiedCoachService:
 
         # AI clients
         self.groq = groq_client
+        self.anthropic = anthropic_client  # AsyncAnthropic client for Claude chat
 
-        # Validate AsyncAnthropic client
-        if not hasattr(anthropic_client, 'messages'):
-            error_msg = "AsyncAnthropic client missing 'messages' attribute - SDK may be corrupted"
-            logger.error(f"[UnifiedCoach] ❌ {error_msg}")
-            logger.warning("[UnifiedCoach] ⚠️ Running in DEGRADED MODE - Claude features unavailable")
-            self.anthropic = None  # Degraded mode
-        else:
-            self.anthropic = anthropic_client
-
-        logger.info("[UnifiedCoach] ✅ Initialized")
+        logger.info("unified_coach_initialized")
 
     async def process_message(
         self,
