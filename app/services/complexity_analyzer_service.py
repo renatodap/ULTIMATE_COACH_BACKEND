@@ -307,8 +307,26 @@ def get_complexity_analyzer(anthropic_client=None):
     global _complexity_analyzer
     if _complexity_analyzer is None:
         if anthropic_client is None:
-            from anthropic import Anthropic
             import os
-            anthropic_client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+            api_key = os.getenv("ANTHROPIC_API_KEY")
+            if not api_key:
+                raise ValueError(
+                    "ANTHROPIC_API_KEY environment variable is not set. "
+                    "Please add it to your .env file to enable AI Coach features."
+                )
+            
+            try:
+                from anthropic import Anthropic
+                anthropic_client = Anthropic(api_key=api_key)
+                # Test the client by checking if it has required methods
+                if not hasattr(anthropic_client, 'messages'):
+                    raise ValueError("Anthropic SDK is corrupted - missing 'messages' attribute")
+            except ImportError as e:
+                raise ImportError(
+                    f"Anthropic SDK is not installed or corrupted: {e}. "
+                    "Run: pip install anthropic==0.34.2"
+                )
+            except Exception as e:
+                raise RuntimeError(f"Failed to initialize Anthropic client: {e}")
         _complexity_analyzer = ComplexityAnalyzerService(anthropic_client)
     return _complexity_analyzer

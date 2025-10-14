@@ -47,29 +47,19 @@ class CannedResponseService:
         """
         Get canned response for trivial message.
 
+        DISABLED: Canned responses are disabled because they interfere with contextual questions.
+        For example, "hi. what did i eat today?" should NOT get a greeting response.
+        All messages should go through the AI for proper context understanding.
+
         Args:
             message: User's message
             language: User's language preference
 
         Returns:
-            Canned response or None if no match
-
-        Example:
-            >>> canned.get_response("hi", "en")
-            "What's up! 💪 Ready to CRUSH IT?"
-
-            >>> canned.get_response("oi", "pt")
-            "E aí! 💪 Pronto para ARRASAR?"
+            Always returns None (canned responses disabled)
         """
-        message_lower = message.lower().strip()
-
-        # Check each pattern
-        for pattern, translation_key in self.patterns.items():
-            if pattern.search(message_lower):
-                response = self.i18n.t(translation_key, language)
-                logger.info(f"[Canned] ⚡ Matched pattern for '{message[:20]}...' → {translation_key}")
-                return response
-
+        # DISABLED: Always return None to force AI processing
+        logger.info(f"[Canned] ⏭️  Skipping canned response - all messages route to AI")
         return None
 
 

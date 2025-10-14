@@ -1600,14 +1600,47 @@ def get_unified_coach_service(
             supabase_client = get_service_client()
 
         if groq_client is None:
-            from groq import Groq
             import os
-            groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+            api_key = os.getenv("GROQ_API_KEY")
+            if not api_key:
+                raise ValueError(
+                    "GROQ_API_KEY environment variable is not set. "
+                    "Please add it to your .env file to enable AI Coach features."
+                )
+            
+            try:
+                from groq import Groq
+                groq_client = Groq(api_key=api_key)
+            except ImportError as e:
+                raise ImportError(
+                    f"Groq SDK is not installed: {e}. "
+                    "Run: pip install groq==0.16.0"
+                )
+            except Exception as e:
+                raise RuntimeError(f"Failed to initialize Groq client: {e}")
 
         if anthropic_client is None:
-            from anthropic import AsyncAnthropic
             import os
-            anthropic_client = AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+            api_key = os.getenv("ANTHROPIC_API_KEY")
+            if not api_key:
+                raise ValueError(
+                    "ANTHROPIC_API_KEY environment variable is not set. "
+                    "Please add it to your .env file to enable AI Coach features."
+                )
+            
+            try:
+                from anthropic import AsyncAnthropic
+                anthropic_client = AsyncAnthropic(api_key=api_key)
+                # Test the client by checking if it has required methods
+                if not hasattr(anthropic_client, 'messages'):
+                    raise ValueError("Anthropic SDK is corrupted - missing 'messages' attribute")
+            except ImportError as e:
+                raise ImportError(
+                    f"Anthropic SDK is not installed or corrupted: {e}. "
+                    "Run: pip install anthropic==0.34.2"
+                )
+            except Exception as e:
+                raise RuntimeError(f"Failed to initialize Anthropic client: {e}")
 
         _unified_coach = UnifiedCoachService(
             supabase_client,
