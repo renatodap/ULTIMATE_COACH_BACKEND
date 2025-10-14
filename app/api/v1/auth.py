@@ -97,9 +97,10 @@ async def signup(request: SignupRequest, response: Response) -> AuthResponse:
         )
     except Exception as e:
         logger.error("user_signup_error", email=request.email, error=str(e))
+        # Surface underlying error as 400 to avoid opaque 500s during signup issues
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to create account. Please try again.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e) or "Failed to create account. Please try again.",
         )
 
 

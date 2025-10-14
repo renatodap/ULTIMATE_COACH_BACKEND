@@ -55,6 +55,9 @@ class Settings(BaseSettings):
     # Monitoring
     SENTRY_DSN: str | None = None
 
+    # Frontend base URL (for auth email redirects)
+    FRONTEND_URL: str | None = None
+
     @property
     def cors_origins_list(self) -> List[str]:
         """Parse CORS_ORIGINS comma-separated string into list."""

@@ -48,18 +48,21 @@ class AuthService:
         try:
             # Create user in Supabase Auth, passing full_name as metadata
             # A trigger in Supabase will create the user profile
-            auth_response = supabase_service.client.auth.sign_up(
-                {
-                    "email": email,
-                    "password": password,
-                    "options": {
-                        "data": {
-                            "full_name": full_name,
-                            "onboarding_completed": False,
-                        }
-                    },
-                }
-            )
+            signup_options: dict[str, Any] = {
+                "email": email,
+                "password": password,
+                "options": {
+                    "data": {
+                        "full_name": full_name,
+                        "onboarding_completed": False,
+                    }
+                },
+            }
+            # If FRONTEND_URL configured, set email redirect for confirmation
+            if settings.FRONTEND_URL:
+                signup_options["options"]["email_redirect_to"] = f"{settings.FRONTEND_URL}/auth/callback"
+
+            auth_response = supabase_service.client.auth.sign_up(signup_options)
 
             if not auth_response.user:
                 raise ValueError("Failed to create user account")
