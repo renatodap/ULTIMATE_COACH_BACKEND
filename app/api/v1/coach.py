@@ -38,8 +38,17 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/coach", tags=["coach"])
 
-# Initialize UnifiedCoachService (singleton)
-unified_coach = get_unified_coach_service()
+# UnifiedCoachService will be lazily initialized on first request
+# (Deferred to avoid module import errors before SDK validation)
+unified_coach = None
+
+
+def get_unified_coach():
+    """Get UnifiedCoachService singleton (lazy initialization)."""
+    global unified_coach
+    if unified_coach is None:
+        unified_coach = get_unified_coach_service()
+    return unified_coach
 
 
 # ============================================================================
@@ -140,7 +149,8 @@ async def send_message(
         logger.info(f"[CoachAPI] 📨 Message from user {user_id[:8]}...")
 
         # Process message through UnifiedCoachService (THE BRAIN)
-        result = await unified_coach.process_message(
+        coach = get_unified_coach()
+        result = await coach.process_message(
             user_id=user_id,
             message=request.message,
             conversation_id=request.conversation_id,
