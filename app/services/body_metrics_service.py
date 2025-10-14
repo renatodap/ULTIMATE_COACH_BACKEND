@@ -333,6 +333,7 @@ class BodyMetricsService:
         recorded_at: datetime,
         weight_kg: float,
         body_fat_percentage: Optional[float] = None,
+        height_cm: Optional[float] = None,
         notes: Optional[str] = None
     ) -> Dict[str, Any]:
         """
@@ -356,6 +357,8 @@ class BodyMetricsService:
                 'body_fat_percentage': body_fat_percentage,
                 'notes': notes
             }
+            if height_cm is not None:
+                metric_data['height_cm'] = height_cm
 
             logger.info(
                 "creating_body_metric",

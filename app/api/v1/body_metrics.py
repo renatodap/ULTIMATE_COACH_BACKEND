@@ -5,7 +5,7 @@ Handles weight tracking, body composition, and trend analysis.
 """
 
 import structlog
-from fastapi import APIRouter, HTTPException, status, Depends, Query
+from fastapi import APIRouter, HTTPException, status, Depends, Query, Request
 from typing import Optional
 from uuid import UUID
 from datetime import date
@@ -285,7 +285,7 @@ async def get_body_metric(
     description="Log a new weight or body composition measurement"
 )
 async def create_body_metric(
-    request: CreateBodyMetricRequest,
+    request: Request,
     current_user: dict = Depends(get_current_user)
 ):
     """
@@ -300,18 +300,52 @@ async def create_body_metric(
     - **notes**: User notes about this measurement
     """
     try:
+        # Defensive parsing to handle proxies sending bytes or wrong content-type
+        try:
+            payload = await request.json()
+        except Exception:
+            raw = await request.body()
+            try:
+                import json as _json
+                decoded = raw.decode("utf-8", errors="replace")
+                payload = _json.loads(decoded)
+            except Exception as parse_err:
+                logger.error(
+                    "body_metrics_payload_parse_error",
+                    user_id=current_user["id"],
+                    error=str(parse_err),
+                )
+                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid JSON body")
+
+        # Validate
+        try:
+            req = CreateBodyMetricRequest.model_validate(payload)
+        except Exception as ve:
+            # Let global 422 handler format errors; also log summary here
+            try:
+                errors = ve.errors()  # type: ignore[attr-defined]
+            except Exception:
+                errors = str(ve)
+            logger.error(
+                "body_metrics_validation_error",
+                user_id=current_user["id"],
+                errors=errors,
+            )
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=errors)
+
         logger.info(
             "creating_body_metric",
             user_id=current_user["id"],
-            weight_kg=request.weight_kg
+            weight_kg=req.weight_kg,
         )
 
         metric = await body_metrics_service.create_body_metric(
             user_id=UUID(current_user["id"]),
-            recorded_at=request.recorded_at,
-            weight_kg=request.weight_kg,
-            body_fat_percentage=request.body_fat_percentage,
-            notes=request.notes
+            recorded_at=req.recorded_at,
+            weight_kg=req.weight_kg,
+            body_fat_percentage=req.body_fat_percentage,
+            height_cm=getattr(req, 'height_cm', None),
+            notes=req.notes,
         )
 
         logger.info(

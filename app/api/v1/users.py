@@ -48,6 +48,11 @@ async def get_my_profile(user: dict = Depends(get_current_user)) -> JSONResponse
                 detail="Profile not found",
             )
 
+        # Resolve latest body metrics for display
+        latest_metric = await supabase_service.get_latest_body_metric(user_id)
+        resolved_weight = latest_metric.get('weight_kg') if latest_metric else profile.get("current_weight_kg")
+        resolved_height = latest_metric.get('height_cm') if latest_metric else profile.get("height_cm")
+
         logger.info("profile_retrieved", user_id=str(user_id))
 
         # Return complete profile with all fields
@@ -66,8 +71,8 @@ async def get_my_profile(user: dict = Depends(get_current_user)) -> JSONResponse
             # Physical stats
             "age": profile.get("age"),
             "biological_sex": profile.get("biological_sex"),
-            "height_cm": profile.get("height_cm"),
-            "current_weight_kg": profile.get("current_weight_kg"),
+            "height_cm": resolved_height,
+            "current_weight_kg": resolved_weight,
             "goal_weight_kg": profile.get("goal_weight_kg"),
 
             # Goals & Training
@@ -317,6 +322,25 @@ async def update_my_profile(
 
         logger.info("profile_updated", user_id=str(user_id),
                    fields=list(update_data.keys()), macro_recalc=needs_macro_recalc)
+
+        # If weight and/or height were provided, create a new body metrics log (weight required for schema)
+        try:
+            metric: dict = {
+                'user_id': str(user_id),
+                'recorded_at': datetime.utcnow().isoformat(),
+                'notes': 'Profile edit',
+            }
+            provided_weight = False
+            if 'current_weight_kg' in update_data and update_data['current_weight_kg'] is not None:
+                metric['weight_kg'] = float(update_data['current_weight_kg'])
+                provided_weight = True
+            if 'height_cm' in update_data and update_data['height_cm'] is not None:
+                metric['height_cm'] = float(update_data['height_cm'])
+            if provided_weight:
+                await supabase_service.create_body_metric(metric)
+                logger.info("body_metric_logged_from_profile_edit", user_id=str(user_id), fields=list(metric.keys()))
+        except Exception as e:
+            logger.warning("body_metric_log_failed", user_id=str(user_id), error=str(e))
 
         # Return complete updated profile
         return JSONResponse(content={

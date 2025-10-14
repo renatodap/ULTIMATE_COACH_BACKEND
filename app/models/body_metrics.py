@@ -26,6 +26,12 @@ class BodyMetricBase(BaseModel):
         le=300.0,
         description="Weight in kilograms (30-300 kg)"
     )
+    height_cm: Optional[float] = Field(
+        None,
+        ge=100.0,
+        le=300.0,
+        description="Height in centimeters (100-300 cm)"
+    )
     body_fat_percentage: Optional[float] = Field(
         None,
         ge=3.0,
@@ -68,6 +74,7 @@ class UpdateBodyMetricRequest(BaseModel):
 
     recorded_at: Optional[datetime] = None
     weight_kg: Optional[float] = Field(None, ge=30.0, le=300.0)
+    height_cm: Optional[float] = Field(None, ge=100.0, le=300.0)
     body_fat_percentage: Optional[float] = Field(None, ge=3.0, le=60.0)
     notes: Optional[str] = Field(None, max_length=500)
 
@@ -100,6 +107,7 @@ class BodyMetric(BaseModel):
     user_id: UUID = Field(..., description="User UUID who created this metric")
     recorded_at: datetime
     weight_kg: float
+    height_cm: Optional[float]
     body_fat_percentage: Optional[float]
     notes: Optional[str]
     created_at: datetime

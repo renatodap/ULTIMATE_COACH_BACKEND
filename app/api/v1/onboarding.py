@@ -287,6 +287,29 @@ async def complete_onboarding(
             onboarding_completed=True,
         )
 
+        # Log initial body metrics (weight and height) for historical tracking
+        try:
+            await supabase_service.create_body_metric({
+                'user_id': str(user_id),
+                'recorded_at': datetime.utcnow().isoformat(),
+                'weight_kg': data.current_weight_kg,
+                'height_cm': data.height_cm,
+                'notes': 'Initial metrics from onboarding'
+            })
+            log_event(
+                "onboarding_body_metrics_seeded",
+                user_id=str(user_id),
+                weight_kg=data.current_weight_kg,
+                height_cm=data.height_cm,
+            )
+        except Exception as e:
+            log_event(
+                "onboarding_body_metrics_seed_failed",
+                level="warn",
+                user_id=str(user_id),
+                error=str(e),
+            )
+
         if not updated_profile:
             log_event("onboarding_profile_update_failed", user_id=str(user_id))
             raise HTTPException(
