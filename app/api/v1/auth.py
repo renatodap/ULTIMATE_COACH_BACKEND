@@ -33,7 +33,7 @@ def set_auth_cookies(response: Response, access_token: str, refresh_token: str):
         secure=not settings.is_development,  # False in development (allows HTTP)
         samesite="none" if not settings.is_development else "lax",  # "none" requires secure=True in production
         path="/",  # Available across entire domain
-        domain="localhost" if settings.is_development else None,  # Share across localhost ports in dev
+        # Don't set domain - let browser handle it based on request origin
         max_age=60 * 60 * 24 * 7,  # 7 days
     )
 
@@ -45,7 +45,7 @@ def set_auth_cookies(response: Response, access_token: str, refresh_token: str):
         secure=not settings.is_development,  # False in development (allows HTTP)
         samesite="none" if not settings.is_development else "lax",  # "none" requires secure=True in production
         path="/",  # Available across entire domain
-        domain="localhost" if settings.is_development else None,  # Share across localhost ports in dev
+        # Don't set domain - let browser handle it based on request origin
         max_age=60 * 60 * 24 * 30,  # 30 days
     )
 
