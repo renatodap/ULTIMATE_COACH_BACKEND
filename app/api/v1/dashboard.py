@@ -96,16 +96,27 @@ async def get_dashboard_summary(
             limit=100
         )
 
-        # Await all tasks
-        profile, nutrition_stats, activity_summary, latest_weight, weight_trend, weekly_activities, weekly_meals = await asyncio.gather(
-            profile_task,
-            nutrition_task,
-            activity_task,
-            latest_weight_task,
-            weight_trend_task,
-            weekly_activities_task,
-            weekly_meals_task
-        )
+        # Await all tasks with error handling
+        try:
+            profile, nutrition_stats, activity_summary, latest_weight, weight_trend, weekly_activities, weekly_meals = await asyncio.gather(
+                profile_task,
+                nutrition_task,
+                activity_task,
+                latest_weight_task,
+                weight_trend_task,
+                weekly_activities_task,
+                weekly_meals_task,
+                return_exceptions=False
+            )
+        except Exception as gather_error:
+            logger.error(
+                "asyncio_gather_failed",
+                user_id=str(user_id),
+                error=str(gather_error),
+                error_type=type(gather_error).__name__,
+                exc_info=True
+            )
+            raise
 
         # Process nutrition summary
         calories_remaining = None
