@@ -75,12 +75,15 @@ async def signup(request: SignupRequest, response: Response) -> AuthResponse:
             full_name=request.full_name,
         )
 
-        # Set auth cookies
-        set_auth_cookies(
-            response,
-            result["session"]["access_token"],
-            result["session"]["refresh_token"],
-        )
+        # Set auth cookies only if session tokens are present (may be None when email confirmation is required)
+        access = result.get("session", {}).get("access_token")
+        refresh = result.get("session", {}).get("refresh_token")
+        if access and refresh:
+            set_auth_cookies(
+                response,
+                access,
+                refresh,
+            )
 
         logger.info("user_signup_success", email=request.email)
 

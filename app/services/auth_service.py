@@ -81,7 +81,12 @@ class AuthService:
             }
 
         except Exception as e:
-            logger.error(f"Signup failed for {email}: {e}")
+            message = str(e)
+            logger.error(f"Signup failed for {email}: {message}")
+            # Normalize common Supabase errors to 400s
+            lower = message.lower()
+            if "already" in lower and ("registered" in lower or "exists" in lower or "duplicate" in lower):
+                raise ValueError("User already exists. Please sign in or use a different email.")
             raise
 
     async def login(
