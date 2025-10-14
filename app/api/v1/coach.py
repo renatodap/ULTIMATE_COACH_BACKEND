@@ -283,7 +283,8 @@ async def confirm_log(
             .update({
                 "status": "confirmed",
                 "confirmed_at": datetime.utcnow().isoformat(),
-                f"{log_type}_id": log_id
+                f"{log_type}_id": log_id,
+                "structured_data": structured_data
             })\
             .eq("id", request.quick_entry_id)\
             .execute()
