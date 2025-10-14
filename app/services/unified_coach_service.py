@@ -1614,7 +1614,7 @@ def get_unified_coach_service(
             except ImportError as e:
                 raise ImportError(
                     f"Groq SDK is not installed: {e}. "
-                    "Run: pip install groq==0.16.0"
+                    "Run: pip install groq"
                 )
             except Exception as e:
                 raise RuntimeError(f"Failed to initialize Groq client: {e}")
@@ -1631,13 +1631,10 @@ def get_unified_coach_service(
             try:
                 from anthropic import AsyncAnthropic
                 anthropic_client = AsyncAnthropic(api_key=api_key)
-                # Test the client by checking if it has required methods
-                if not hasattr(anthropic_client, 'messages'):
-                    raise ValueError("Anthropic SDK is corrupted - missing 'messages' attribute")
             except ImportError as e:
                 raise ImportError(
-                    f"Anthropic SDK is not installed or corrupted: {e}. "
-                    "Run: pip install anthropic==0.34.2"
+                    f"Anthropic SDK is not installed: {e}. "
+                    "Run: pip install anthropic"
                 )
             except Exception as e:
                 raise RuntimeError(f"Failed to initialize Anthropic client: {e}")

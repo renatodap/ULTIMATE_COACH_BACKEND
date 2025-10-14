@@ -318,13 +318,10 @@ def get_complexity_analyzer(anthropic_client=None):
             try:
                 from anthropic import Anthropic
                 anthropic_client = Anthropic(api_key=api_key)
-                # Test the client by checking if it has required methods
-                if not hasattr(anthropic_client, 'messages'):
-                    raise ValueError("Anthropic SDK is corrupted - missing 'messages' attribute")
             except ImportError as e:
                 raise ImportError(
-                    f"Anthropic SDK is not installed or corrupted: {e}. "
-                    "Run: pip install anthropic==0.34.2"
+                    f"Anthropic SDK is not installed: {e}. "
+                    "Run: pip install anthropic"
                 )
             except Exception as e:
                 raise RuntimeError(f"Failed to initialize Anthropic client: {e}")
