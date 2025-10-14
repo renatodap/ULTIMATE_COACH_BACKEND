@@ -12,7 +12,8 @@ from datetime import datetime
 from typing import List, Literal, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
 
@@ -363,3 +364,16 @@ async def preview_targets(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid parameters: {str(e)}"
         )
+@router.exception_handler(RequestValidationError)
+async def onboarding_validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Log request validation errors for onboarding payloads."""
+    try:
+        log_event(
+            "onboarding_request_validation_error",
+            level="error",
+            path=str(request.url.path),
+            errors=exc.errors(),
+        )
+    except Exception:
+        pass
+    return JSONResponse(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, content={"detail": exc.errors()})
