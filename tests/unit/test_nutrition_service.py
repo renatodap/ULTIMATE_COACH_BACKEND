@@ -34,11 +34,11 @@ def sample_food_data():
         "id": str(uuid4()),
         "name": "Grilled Chicken Breast",
         "brand_name": None,
-        "calories_per_100g": 165.0,
-        "protein_g_per_100g": 31.0,
-        "carbs_g_per_100g": 0.0,
-        "fat_g_per_100g": 3.6,
-        "fiber_g_per_100g": 0.0,
+        "calories_per_100g": Decimal("165.0"),
+        "protein_g_per_100g": Decimal("31.0"),
+        "carbs_g_per_100g": Decimal("0.0"),
+        "fat_g_per_100g": Decimal("3.6"),
+        "fiber_g_per_100g": Decimal("0.0"),
         "sugar_g_per_100g": None,
         "sodium_mg_per_100g": None,
         "food_type": "ingredient",
@@ -99,15 +99,9 @@ class TestSearchFoods:
     @patch('app.services.nutrition_service.supabase_service')
     async def test_search_foods_returns_public_foods(self, mock_supabase, mock_supabase_response):
         """Should return public foods from text search."""
-        mock_supabase.client.table.return_value.select.return_value\
-            .eq.return_value.text_search.return_value.order.return_value\
-            .order.return_value.limit.return_value.execute.return_value = mock_supabase_response
-
-        # Also mock custom foods query (empty)
-        empty_response = Mock()
-        empty_response.data = []
-        mock_supabase.client.table.return_value.select.return_value\
-            .eq.return_value.ilike.return_value.limit.return_value.execute.return_value = empty_response
+        (
+            mock_supabase.client.table.return_value.select.return_value.eq.return_value.ilike.return_value.order.return_value.order.return_value.limit.return_value.execute
+        ).return_value = mock_supabase_response
 
         result = await nutrition_service.search_foods(query="chicken", limit=20)
 
