@@ -1,0 +1,32 @@
+# ============================================================================
+# Additional Python Dependencies for Adaptive Program System
+# ============================================================================
+# Add these to: ULTIMATE_COACH_BACKEND/requirements.txt
+
+# OR-Tools for constraint solving
+ortools==9.8.3296
+
+# APScheduler for background jobs
+APScheduler==3.10.4
+
+# Additional Anthropic SDK (if not already present)
+anthropic>=0.25.0
+
+# For better date/time handling
+python-dateutil==2.8.2
+
+# For async background task processing
+celery==5.3.4  # Optional: if you prefer Celery over APScheduler
+redis==5.0.1  # Optional: for Celery broker
+
+# ============================================================================
+# Notes:
+# ============================================================================
+# - ortools: Used by ConstraintSolver for feasibility checks
+# - APScheduler: Handles bi-weekly reassessment cron jobs
+# - anthropic: For structured data extraction from coach messages
+# - python-dateutil: Better date math for progress tracking
+# - celery/redis: Alternative to APScheduler for distributed systems
+#
+# Installation:
+#   pip install -r requirements_additions.txt
