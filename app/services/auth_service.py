@@ -69,7 +69,17 @@ class AuthService:
 
             user_id = UUID(auth_response.user.id)
 
-            logger.info(f"User signed up successfully: {email}")
+            # Structured log with Supabase response metadata
+            logger.info(
+                "supabase_signup_success",
+                extra={
+                    "email": email,
+                    "user_id": str(user_id),
+                    "session_present": bool(auth_response.session),
+                    "email_confirmed_at": getattr(auth_response.user, "email_confirmed_at", None),
+                    "email_redirect_to": signup_options["options"].get("email_redirect_to"),
+                },
+            )
 
             return {
                 "user": {
@@ -85,7 +95,27 @@ class AuthService:
 
         except Exception as e:
             message = str(e)
-            logger.error(f"Signup failed for {email}: {message}")
+            # Try to extract HTTP details from underlying client error (httpx)
+            status_code = None
+            response_text = None
+            try:
+                resp = getattr(e, "response", None)
+                if resp is not None:
+                    status_code = getattr(resp, "status_code", None)
+                    response_text = getattr(resp, "text", None)
+            except Exception:
+                pass
+
+            logger.error(
+                "supabase_signup_error",
+                extra={
+                    "email": email,
+                    "error": message,
+                    "error_type": type(e).__name__,
+                    "http_status": status_code,
+                    "http_body": response_text,
+                },
+            )
             # Normalize common Supabase errors to 400s
             lower = message.lower()
             if "already" in lower and ("registered" in lower or "exists" in lower or "duplicate" in lower):
@@ -147,7 +177,14 @@ class AuthService:
             }
 
         except Exception as e:
-            logger.error(f"Login failed for {email}: {e}")
+            message = str(e)
+            logger.error(f"Login failed for {email}: {message}")
+            lower = message.lower()
+            # Normalize common GoTrue errors
+            if "invalid login credentials" in lower or "invalid credentials" in lower:
+                raise ValueError("Invalid email or password")
+            if "email not confirmed" in lower or "email not confirmed" in lower:
+                raise ValueError("Email not confirmed. Please check your email to verify your account.")
             raise
 
     async def get_user_from_token(self, access_token: str) -> Optional[Dict[str, Any]]:
