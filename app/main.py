@@ -11,6 +11,7 @@ from typing import AsyncGenerator
 
 import structlog
 from fastapi import FastAPI
+from fastapi import HTTPException as FastAPIHTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -186,6 +187,42 @@ async def global_exception_handler(request, exc):
         headers=headers,
     )
 
+
+# Sanitize HTTPException details to ensure JSON serializable responses
+@app.exception_handler(FastAPIHTTPException)
+async def http_exception_handler(request, exc: FastAPIHTTPException):
+    # Convert non-serializable details (e.g., ValueError, bytes) into safe JSON
+    detail = exc.detail
+    if isinstance(detail, (bytes, bytearray)):
+        try:
+            detail = detail.decode("utf-8", errors="replace")
+        except Exception:
+            detail = str(detail)
+    elif not isinstance(detail, (str, dict, list, type(None))):
+        # Any other object: coerce to string
+        detail = str(detail)
+
+    logger.error(
+        "http_exception",
+        status_code=exc.status_code,
+        path=request.url.path,
+        method=request.method,
+        detail=detail,
+    )
+
+    origin = request.headers.get("origin", "http://localhost:3000")
+    headers = {
+        "Access-Control-Allow-Origin": origin if origin in settings.cors_origins_list else settings.cors_origins_list[0],
+        "Access-Control-Allow-Credentials": "true",
+        "Access-Control-Allow-Methods": "*",
+        "Access-Control-Allow-Headers": "*",
+    }
+
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": detail},
+        headers=headers,
+    )
 
 # 422 validation errors (e.g., request body invalid)
 @app.exception_handler(RequestValidationError)
