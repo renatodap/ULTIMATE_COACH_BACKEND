@@ -5,7 +5,7 @@ Main API for the AI fitness coach.
 Handles message sending, log confirmation, and conversation management.
 """
 
-import logging
+import structlog
 from typing import List, Optional
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query
@@ -34,7 +34,7 @@ from app.services.body_metrics_service import body_metrics_service
 from app.services.unified_coach_service import get_unified_coach_service
 from uuid import UUID
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 router = APIRouter(prefix="/coach", tags=["coach"])
 
@@ -146,7 +146,7 @@ async def send_message(
     try:
         user_id = current_user["id"]
 
-        logger.info(f"[CoachAPI] 📨 Message from user {user_id[:8]}...")
+        logger.info("coach_message_received", user_id=user_id[:8])
 
         # Process message through UnifiedCoachService (THE BRAIN)
         coach = get_unified_coach()
@@ -158,12 +158,12 @@ async def send_message(
             background_tasks=background_tasks
         )
 
-        logger.info(f"[CoachAPI] ✅ Response ready")
+        logger.info("coach_response_ready", user_id=user_id[:8])
 
         return result
 
     except Exception as e:
-        logger.error(f"[CoachAPI] ❌ Message processing failed: {e}", exc_info=True)
+        logger.error("coach_message_failed", error=str(e), error_type=type(e).__name__, exc_info=True)
         raise HTTPException(
             status_code=500,
             detail=f"Failed to process message: {str(e)}"

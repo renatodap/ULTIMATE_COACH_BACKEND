@@ -8,9 +8,9 @@ from pydantic import BaseModel, Field, validator
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 from uuid import UUID
-import logging
+import structlog
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 # Category-specific METs ranges for realistic intensity validation
 METS_RANGES = {
@@ -111,8 +111,11 @@ class ActivityBase(BaseModel):
 
         if v < min_mets or v > max_mets:
             logger.warning(
-                f"Unusual METs value for {category}: {v} "
-                f"(typical range: {min_mets}-{max_mets})"
+                "unusual_mets_value",
+                category=category,
+                mets=v,
+                min_mets=min_mets,
+                max_mets=max_mets
             )
             # Note: We log but don't raise - user might have legitimate edge cases
             # e.g., very light yoga (1.5) or extreme HIIT (18.0)
@@ -129,8 +132,8 @@ class ActivityBase(BaseModel):
         """
         if v and values.get('end_time'):
             logger.info(
-                "Both duration_minutes and end_time provided - "
-                "duration will be recalculated from timestamps"
+                "duration_recalculation",
+                msg="Both duration_minutes and end_time provided - duration will be recalculated from timestamps"
             )
         return v
 
