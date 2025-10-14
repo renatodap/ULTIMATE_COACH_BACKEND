@@ -140,6 +140,22 @@ async def complete_onboarding(
     user_id = UUID(user['id'])
 
     try:
+        # Log incoming payload summary (no sensitive tokens)
+        log_event(
+            "onboarding_request_received",
+            user_id=user['id'],
+            primary_goal=data.primary_goal,
+            experience_level=data.experience_level,
+            activity_level=data.activity_level,
+            age=data.age,
+            sex=data.biological_sex,
+            height_cm=data.height_cm,
+            current_weight_kg=data.current_weight_kg,
+            goal_weight_kg=data.goal_weight_kg,
+            meals_per_day=data.meals_per_day,
+            unit_system=data.unit_system,
+            timezone=data.timezone,
+        )
         # Step 1: Calculate macro targets
         log_event(
             "onboarding_macro_calculation_started",
@@ -157,6 +173,17 @@ async def complete_onboarding(
             activity_level=data.activity_level,
             primary_goal=data.primary_goal,
             experience_level=data.experience_level
+        )
+
+        log_event(
+            "onboarding_targets_calculated",
+            user_id=user['id'],
+            daily_calories=targets.daily_calories,
+            bmr=targets.bmr,
+            tdee=targets.tdee,
+            protein_g=targets.daily_protein_g,
+            carbs_g=targets.daily_carbs_g,
+            fat_g=targets.daily_fat_g,
         )
 
         log_event(
@@ -217,6 +244,13 @@ async def complete_onboarding(
         # Step 3: Update profile
         updated_profile = await supabase_service.update_profile(user_id, profile_update)
 
+        log_event(
+            "onboarding_profile_updated",
+            user_id=str(user_id),
+            updated_fields=list(profile_update.keys()),
+            onboarding_completed=True,
+        )
+
         if not updated_profile:
             log_event("onboarding_profile_update_failed", user_id=str(user_id))
             raise HTTPException(
@@ -232,11 +266,16 @@ async def complete_onboarding(
         )
 
         # Step 4: Return response
-        return OnboardingResponse(
+        response = OnboardingResponse(
             profile=updated_profile,
             targets=targets,
             message="Onboarding completed successfully! Your personalized targets are ready."
         )
+        log_event(
+            "onboarding_complete_success",
+            user_id=str(user_id),
+        )
+        return response
 
     except ValueError as e:
         log_event(

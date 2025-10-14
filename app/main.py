@@ -11,6 +11,7 @@ from typing import AsyncGenerator
 
 import structlog
 from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -185,6 +186,30 @@ async def global_exception_handler(request, exc):
         headers=headers,
     )
 
+
+# 422 validation errors (e.g., request body invalid)
+@app.exception_handler(RequestValidationError)
+async def request_validation_error_handler(request, exc: RequestValidationError):
+    logger.error(
+        "request_validation_error",
+        path=request.url.path,
+        method=request.method,
+        errors=exc.errors(),
+    )
+
+    origin = request.headers.get("origin", "http://localhost:3000")
+    headers = {
+        "Access-Control-Allow-Origin": origin if origin in settings.cors_origins_list else settings.cors_origins_list[0],
+        "Access-Control-Allow-Credentials": "true",
+        "Access-Control-Allow-Methods": "*",
+        "Access-Control-Allow-Headers": "*",
+    }
+
+    return JSONResponse(
+        status_code=422,
+        content={"detail": exc.errors()},
+        headers=headers,
+    )
 
 # Nutrition-specific error handler
 from app.models.errors import NutritionError
