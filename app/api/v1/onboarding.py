@@ -12,9 +12,9 @@ from datetime import datetime
 from typing import List, Literal, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, ValidationError
 
 from app.api.dependencies import get_current_user
 from app.config import settings
@@ -112,7 +112,7 @@ class OnboardingResponse(BaseModel):
     description="Complete onboarding process and calculate macro targets",
 )
 async def complete_onboarding(
-    data: OnboardingData,
+    request: Request,
     user: dict = Depends(get_current_user)
 ) -> OnboardingResponse:
     """
@@ -140,6 +140,41 @@ async def complete_onboarding(
     user_id = UUID(user['id'])
 
     try:
+        # Defensive JSON parsing to handle proxies sending bytes or wrong content-type
+        content_type = request.headers.get("content-type", "")
+        try:
+            payload = await request.json()
+        except Exception:
+            raw = await request.body()
+            try:
+                import json as _json
+                decoded = raw.decode("utf-8", errors="replace")
+                payload = _json.loads(decoded)
+            except Exception as parse_err:
+                # Log raw decode failure and raise 422
+                log_event(
+                    "onboarding_payload_parse_error",
+                    level="error",
+                    user_id=user['id'],
+                    content_type=content_type,
+                    error=str(parse_err),
+                )
+                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid JSON body")
+
+        # Validate against schema
+        try:
+            data = OnboardingData.model_validate(payload)
+        except ValidationError as ve:
+            # Let global 422 handler format errors; also log summary here
+            log_event(
+                "onboarding_payload_validation_error",
+                level="error",
+                user_id=user['id'],
+                content_type=content_type,
+                errors=ve.errors(),
+            )
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=ve.errors())
+
         # Log incoming payload summary (no sensitive tokens)
         log_event(
             "onboarding_request_received",
@@ -155,6 +190,7 @@ async def complete_onboarding(
             meals_per_day=data.meals_per_day,
             unit_system=data.unit_system,
             timezone=data.timezone,
+            content_type=content_type,
         )
         # Step 1: Calculate macro targets
         log_event(
