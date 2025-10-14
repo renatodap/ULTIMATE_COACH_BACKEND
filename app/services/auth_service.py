@@ -112,6 +112,12 @@ class AuthService:
             if not auth_response.user:
                 raise ValueError("Invalid credentials")
 
+            # Enforce email confirmation before allowing login
+            # Supabase user usually exposes `email_confirmed_at` when verified
+            email_confirmed_at = getattr(auth_response.user, "email_confirmed_at", None)
+            if not email_confirmed_at:
+                raise ValueError("Email not confirmed. Please check your email to verify your account.")
+
             user_id = UUID(auth_response.user.id)
 
             # Get user profile

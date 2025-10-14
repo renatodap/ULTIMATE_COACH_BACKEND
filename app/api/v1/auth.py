@@ -137,9 +137,11 @@ async def login(request: LoginRequest, response: Response) -> AuthResponse:
 
     except ValueError as e:
         logger.warning("user_login_failed", email=request.email, error=str(e))
+        # Propagate specific error (e.g., unconfirmed email) when available
+        message = str(e) or "Invalid email or password"
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password",
+            detail=message,
         )
     except Exception as e:
         logger.error("user_login_error", email=request.email, error=str(e))
