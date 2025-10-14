@@ -34,15 +34,8 @@ class ComplexityAnalyzerService:
         Args:
             anthropic_client: Anthropic (NOT AsyncAnthropic) client for sync calls
         """
-        # Validate client has messages attribute
-        if not hasattr(anthropic_client, 'messages'):
-            error_msg = "Anthropic client missing 'messages' attribute - SDK may be corrupted"
-            logger.error(f"[ComplexityAnalyzer] ❌ {error_msg}")
-            logger.warning("[ComplexityAnalyzer] ⚠️ Running in DEGRADED MODE - will default all queries to 'complex'")
-            self.anthropic = None  # Degraded mode
-        else:
-            self.anthropic = anthropic_client
-            logger.info("[ComplexityAnalyzer] ✅ Initialized with valid Anthropic client")
+        self.anthropic = anthropic_client
+        logger.info("complexity_analyzer_initialized", client_type=type(anthropic_client).__name__)
 
     async def analyze_complexity(
         self,
@@ -64,17 +57,7 @@ class ComplexityAnalyzerService:
                 "reasoning": str
             }
         """
-        logger.info(f"[ComplexityAnalyzer] 🧠 Analyzing: '{message[:50]}...'")
-
-        # DEGRADED MODE: SDK corrupted, default to complex
-        if self.anthropic is None:
-            logger.warning("[ComplexityAnalyzer] ⚠️ Degraded mode - defaulting to 'complex'")
-            return {
-                "complexity": "complex",
-                "confidence": 0.5,
-                "recommended_model": "claude",
-                "reasoning": "SDK unavailable - defaulting to complex for tool access (degraded mode)"
-            }
+        logger.info("analyzing_complexity", message_preview=message[:50])
 
         # Images always require Claude (multimodal)
         if has_image:
@@ -255,32 +238,21 @@ Return ONLY valid JSON."""
             analysis = json.loads(response_text)
 
             logger.info(
-                f"[ComplexityAnalyzer] ✅ Complexity: {analysis['complexity']}, "
-                f"confidence: {analysis['confidence']:.2f}, "
-                f"reasoning: {analysis['reasoning'][:50]}..."
+                "complexity_analyzed",
+                complexity=analysis['complexity'],
+                confidence=round(analysis['confidence'], 2),
+                reasoning=analysis['reasoning'][:50]
             )
 
             return analysis
 
-        except AttributeError as e:
-            if "'Anthropic' object has no attribute 'messages'" in str(e):
-                logger.error(
-                    "[ComplexityAnalyzer] ❌ SDK Error: Anthropic client missing 'messages' attribute. "
-                    "SDK may be corrupted or incorrect version installed.",
-                    exc_info=True
-                )
-            else:
-                logger.error(f"[ComplexityAnalyzer] ❌ AttributeError: {e}", exc_info=True)
-
-            # FAIL-SAFE: Default to COMPLEX (better to have tool access than not)
-            return {
-                "complexity": "complex",
-                "confidence": 0.5,
-                "recommended_model": "claude",
-                "reasoning": "SDK error - using fallback complexity routing"
-            }
         except Exception as e:
-            logger.error(f"[ComplexityAnalyzer] ❌ Analysis failed: {e}", exc_info=True)
+            logger.error(
+                "complexity_analysis_failed",
+                error=str(e),
+                error_type=type(e).__name__,
+                exc_info=True
+            )
 
             # FAIL-SAFE: Default to COMPLEX (better to have tool access than not)
             return {
