@@ -364,7 +364,6 @@ async def preview_targets(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid parameters: {str(e)}"
         )
-@router.exception_handler(RequestValidationError)
 async def onboarding_validation_exception_handler(request: Request, exc: RequestValidationError):
     """Log request validation errors for onboarding payloads."""
     try:
@@ -377,3 +376,6 @@ async def onboarding_validation_exception_handler(request: Request, exc: Request
     except Exception:
         pass
     return JSONResponse(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, content={"detail": exc.errors()})
+
+# Register the exception handler on the router (decorator not supported on APIRouter)
+router.add_exception_handler(RequestValidationError, onboarding_validation_exception_handler)
