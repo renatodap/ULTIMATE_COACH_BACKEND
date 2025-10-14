@@ -190,11 +190,29 @@ async def global_exception_handler(request, exc):
 # 422 validation errors (e.g., request body invalid)
 @app.exception_handler(RequestValidationError)
 async def request_validation_error_handler(request, exc: RequestValidationError):
+    # Sanitize errors for JSON serialization (bytes -> decoded string, truncated)
+    raw_errors = exc.errors()
+    sanitized_errors = []
+    for err in raw_errors:
+        e = dict(err)
+        val = e.get("input")
+        if isinstance(val, (bytes, bytearray)):
+            try:
+                decoded = val.decode("utf-8", errors="replace")
+            except Exception:
+                decoded = str(val)
+            # Truncate to avoid log bloat
+            if len(decoded) > 500:
+                decoded = decoded[:500] + "…"
+            e["input"] = decoded
+        sanitized_errors.append(e)
+
     logger.error(
         "request_validation_error",
-        path=request.url.path,
+        path=str(request.url.path),
         method=request.method,
-        errors=exc.errors(),
+        content_type=request.headers.get("content-type"),
+        errors=sanitized_errors,
     )
 
     origin = request.headers.get("origin", "http://localhost:3000")
@@ -207,7 +225,7 @@ async def request_validation_error_handler(request, exc: RequestValidationError)
 
     return JSONResponse(
         status_code=422,
-        content={"detail": exc.errors()},
+        content={"detail": sanitized_errors},
         headers=headers,
     )
 
