@@ -6,7 +6,7 @@ Handles validation for weight and body composition measurements.
 
 from pydantic import BaseModel, Field, validator
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import UUID
 import structlog
 
@@ -46,8 +46,14 @@ class BodyMetricBase(BaseModel):
 
     @validator('recorded_at')
     def validate_recorded_at(cls, v):
-        """Ensure recorded_at is not in the future."""
-        if v > datetime.now():
+        """Ensure recorded_at is not in the future. Handle aware/naive datetimes."""
+        # Normalize both to timezone-aware UTC for safe comparison
+        if v.tzinfo is None:
+            v_aware = v.replace(tzinfo=timezone.utc)
+        else:
+            v_aware = v.astimezone(timezone.utc)
+        now_utc = datetime.now(timezone.utc)
+        if v_aware > now_utc:
             raise ValueError("recorded_at cannot be in the future")
         return v
 
