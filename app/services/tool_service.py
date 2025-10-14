@@ -18,11 +18,11 @@ Provides 12 tools for on-demand data fetching:
 This is 80% cheaper than full RAG - only fetches what's needed!
 """
 
-import logging
+import structlog
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 # ============================================================================

@@ -9,12 +9,12 @@ Uses Groq Llama 3.3 70B to detect and extract structured log data:
 This is used by the coach's log mode for quick data entry.
 """
 
-import logging
+import structlog
 from typing import Dict, Any, Optional, List
 import json
 from datetime import datetime
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 class LogExtractionService:

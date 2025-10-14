@@ -11,7 +11,7 @@ Architecture:
 - Conversation history management
 """
 
-import logging
+import structlog
 from typing import Any, Dict, List, Optional
 from uuid import UUID, uuid4
 from datetime import datetime
@@ -21,7 +21,7 @@ from app.config import settings
 from app.services.supabase_service import SupabaseService
 from app.services.consultation_security import ConsultationSecurity, ConsultationSecurityError
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 class ConsultationAIService:

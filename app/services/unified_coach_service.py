@@ -13,11 +13,11 @@ Cost: $0.01-0.15/interaction (avg $0.035 with smart routing)
 Speed: 0ms-2000ms (avg 800ms with smart routing)
 """
 
-import logging
+import structlog
 from typing import Dict, Any, Optional
 from datetime import datetime
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 class UnifiedCoachService:

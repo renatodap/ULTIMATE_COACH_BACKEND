@@ -4,14 +4,14 @@ Supabase service module with connection pooling and helper methods.
 Provides a centralized interface for all database operations via Supabase.
 """
 
-import logging
+import structlog
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from supabase import Client, create_client
 from app.config import settings
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 class SupabaseService:

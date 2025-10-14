@@ -5,11 +5,11 @@ Provides instant responses for trivial queries.
 Supports multiple languages via i18n service.
 """
 
-import logging
+import structlog
 import re
 from typing import Optional
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 # Pattern → Translation Key mapping

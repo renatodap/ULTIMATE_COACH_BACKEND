@@ -11,12 +11,12 @@ Caches:
 - User language (5min TTL)
 """
 
-import logging
+import structlog
 from typing import Any, Optional
 from datetime import datetime, timedelta
 import threading
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 class CacheService:

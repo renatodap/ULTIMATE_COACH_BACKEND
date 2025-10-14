@@ -5,7 +5,7 @@ Handles CRUD operations for activity templates.
 Templates are user-defined patterns for recurring workouts with auto-matching capability.
 """
 
-import logging
+import structlog
 from typing import Dict, Any, List, Optional
 from uuid import UUID
 from datetime import datetime, date
@@ -13,7 +13,7 @@ from fastapi import HTTPException, status
 
 from app.services.supabase_service import SupabaseService
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 class TemplateService:

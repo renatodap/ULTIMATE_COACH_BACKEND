@@ -12,11 +12,11 @@ Cost: $0.00527/query vs $0.0056/query (all-Claude).
 Savings: 94% cheaper while maintaining quality.
 """
 
-import logging
+import structlog
 from typing import Dict, Any, Optional
 import json
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 class ComplexityAnalyzerService:

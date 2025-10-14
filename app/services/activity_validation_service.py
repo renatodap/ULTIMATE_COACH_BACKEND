@@ -5,11 +5,11 @@ Validates JSONB metrics for different activity types.
 Prevents inconsistent data from entering the database.
 """
 
-import logging
+import structlog
 from typing import Dict, Any, Optional
 from jsonschema import validate, ValidationError
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 # JSON Schemas for each activity type

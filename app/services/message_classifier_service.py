@@ -7,11 +7,11 @@ Critical for routing messages to correct handler in unified Coach interface.
 Uses Groq Llama 3.3 70B: $0.05/M tokens (~$0.0001 per classification)
 """
 
-import logging
+import structlog
 from typing import Dict, Any
 import json
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 class MessageClassifierService:

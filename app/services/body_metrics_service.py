@@ -5,7 +5,7 @@ Handles business logic for creating, reading, updating, and deleting body metric
 Calculates trends and provides weight progress analysis.
 """
 
-import logging
+import structlog
 from typing import Dict, Any, List, Optional
 from uuid import UUID
 from datetime import datetime, date, timedelta
@@ -13,7 +13,7 @@ from fastapi import HTTPException, status
 
 from app.services.supabase_service import SupabaseService
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 class BodyMetricsService:

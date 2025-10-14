@@ -11,12 +11,12 @@ Uses database translation_cache with fallback to English.
 Auto-detects user language from first message.
 """
 
-import logging
+import structlog
 from typing import Optional, Dict, Any
 from functools import lru_cache
 import langdetect
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 class I18nService:

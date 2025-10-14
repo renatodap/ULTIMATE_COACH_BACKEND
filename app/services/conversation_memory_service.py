@@ -12,11 +12,11 @@ This ensures AI remembers:
 - Anything from history when asked (Tier 3 - tool-based)
 """
 
-import logging
+import structlog
 import re
 from typing import Dict, Any, List, Optional
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 # Keywords that indicate IMPORTANT user information
 # These trigger automatic retrieval from message history

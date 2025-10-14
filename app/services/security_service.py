@@ -14,12 +14,12 @@ Attack Vectors Protected:
 7. Output leakage: Tricks to reveal system prompts
 """
 
-import logging
+import structlog
 import re
 from typing import Dict, Any, Tuple, Optional, List
 from datetime import datetime, timedelta
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 class SecurityService:

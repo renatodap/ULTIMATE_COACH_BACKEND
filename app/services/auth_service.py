@@ -4,14 +4,14 @@ Authentication service for user signup, login, and JWT token management.
 Uses Supabase Auth for user management.
 """
 
-import logging
+import structlog
 from typing import Dict, Any, Optional
 from uuid import UUID
 
 from app.config import settings
 from app.services.supabase_service import supabase_service
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 class AuthService:

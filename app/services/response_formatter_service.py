@@ -15,11 +15,11 @@ Uses Groq Llama 3.3 70B for fast, cheap reformatting.
 Cost: ~$0.0001 per reformat (negligible)
 """
 
-import logging
+import structlog
 import re
 from typing import Optional
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 class ResponseFormatterService:

@@ -16,7 +16,7 @@ Match thresholds:
 - 0-49: Poor match (don't show)
 """
 
-import logging
+import structlog
 from datetime import datetime, date, time
 from typing import Dict, List, Optional, Any, Tuple
 from uuid import UUID
@@ -26,7 +26,7 @@ from fastapi import HTTPException, status
 from app.services.supabase_service import SupabaseService
 from app.services.template_service import template_service
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 class MatchScoreBreakdown:

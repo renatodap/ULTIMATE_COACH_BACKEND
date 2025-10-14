@@ -10,11 +10,11 @@ Detects special contexts that require adapted coaching responses:
 5% of interactions need this - the rest get FULL INTENSITY!
 """
 
-import logging
+import structlog
 from typing import Dict, Any, Optional
 import re
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 # Pattern matching for context detection
