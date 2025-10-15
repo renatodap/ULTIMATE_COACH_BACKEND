@@ -104,7 +104,8 @@ def generate_program_from_consultation(
         try:
             complete_plan, generator_warnings = generator.generate_complete_plan(
                 profile=user_profile,
-                plan_version=1
+                plan_version=1,
+                meals_per_day=(options.meals_per_day if options else 3),
             )
             warnings.extend(generator_warnings)
             
@@ -162,7 +163,7 @@ def _transform_to_program_bundle(
     from services.program_generator.plan_generator import UserProfile
     
     # Transform training program
-    training_plan = _transform_training_plan(complete_plan)
+    training_plan = _transform_training_plan(complete_plan, consultation)
     
     # Transform nutrition plan
     nutrition_plan = _transform_nutrition_plan(complete_plan)
@@ -243,6 +244,9 @@ def _transform_to_program_bundle(
                     session_kind=s.session_kind.value if hasattr(s.session_kind, "value") else str(s.session_kind),
                     modality=s.modality,
                     day_of_week=s.day_of_week,
+                    time_of_day=s.time_of_day,
+                    start_hour=s.start_hour,
+                    end_hour=s.end_hour,
                     duration_minutes=s.duration_minutes,
                     intensity_target=s.intensity_target,
                     intervals=intervals,
@@ -282,15 +286,49 @@ def _transform_to_program_bundle(
     return program_bundle
 
 
-def _transform_training_plan(complete_plan: CompletePlan) -> TrainingPlan:
+def _transform_training_plan(complete_plan: CompletePlan, consultation: ConsultationTranscript) -> TrainingPlan:
     """Transform internal TrainingProgram to output TrainingPlan."""
     from api.schemas.outputs import TrainingSession, ExerciseInstruction
     
     training_program = complete_plan.training_program
     
+    # Helper: derive default coarse windows
+    def tod_for_hour(h: int) -> str:
+        return "morning" if 5 <= h < 12 else ("afternoon" if 12 <= h < 17 else "evening")
+
+    # Build day -> preferred time_of_day list and explicit time windows if provided
+    avail = consultation.training_availability or []
+    day_slots = [a.day_of_week.lower() for a in avail if a.day_of_week] or [
+        "monday",
+        "wednesday",
+        "friday",
+        "saturday",
+    ]
+    tod_map = {a.day_of_week.lower(): (a.time_of_day or ["evening"]) for a in avail if a.day_of_week}
+    # explicit windows: list of (start,end) per day
+    explicit_windows = {}
+    for a in avail:
+        if not a.day_of_week:
+            continue
+        day = a.day_of_week.lower()
+        win = []
+        for tw in (a.time_windows or []):
+            win.append((tw.start_hour, tw.end_hour))
+        if win:
+            explicit_windows[day] = win
+
+    # Reservations from multimodal fixed sessions (avoid placing lifting there)
+    fixed_reservations = {}
+    if getattr(complete_plan, "multimodal_sessions_weekly", None):
+        for s in complete_plan.multimodal_sessions_weekly:
+            d = (s.day_of_week or "").lower()
+            if not d or s.start_hour is None or s.end_hour is None:
+                continue
+            fixed_reservations.setdefault(d, []).append((s.start_hour, s.end_hour))
+
     # Transform sessions
     sessions = []
-    for session in training_program.weekly_sessions:
+    for idx, session in enumerate(training_program.weekly_sessions):
         # Transform exercises
         exercises = []
         for exercise in session.exercises:
@@ -304,12 +342,58 @@ def _transform_training_plan(complete_plan: CompletePlan) -> TrainingPlan:
                 equipment_needed=[],  # TODO: Extract from exercise database
                 instructions=exercise.notes,
             ))
-        
+
+        # Assign day/time-of-day with per-day packing
+        # Try the planned day, else rotate
+        tried_days = 0
+        assigned_day = None
+        assigned_tod = None
+        while tried_days < len(day_slots) and assigned_day is None:
+            day = day_slots[(idx + tried_days) % len(day_slots)]
+            # Determine candidate windows for this day
+            windows = explicit_windows.get(day)
+            if windows:
+                # pick first window not overlapping fixed reservations
+                res = fixed_reservations.get(day, [])
+                placed = False
+                for (sh, eh) in windows:
+                    overlap = any(not (eh <= a or sh >= b) for (a, b) in res)
+                    if not overlap:
+                        assigned_day = day
+                        assigned_tod = tod_for_hour(sh)
+                        # Reserve it to avoid stacking too many sessions; approximate
+                        fixed_reservations.setdefault(day, []).append((sh, eh))
+                        placed = True
+                        break
+                if placed:
+                    break
+            # Fall back to time_of_day buckets
+            tod_choices = tod_map.get(day, ["morning", "afternoon", "evening"])
+            # If there are fixed reservations, avoid picking their time_of_day
+            reserved_tods = {tod_for_hour(sh) for (sh, eh) in fixed_reservations.get(day, [])}
+            tod = next((t for t in tod_choices if t not in reserved_tods), None)
+            if tod:
+                assigned_day = day
+                assigned_tod = tod
+                # Reserve a coarse window for this TOD to limit collisions
+                if tod == "morning":
+                    fixed_reservations.setdefault(day, []).append((6, 12))
+                elif tod == "afternoon":
+                    fixed_reservations.setdefault(day, []).append((12, 17))
+                else:
+                    fixed_reservations.setdefault(day, []).append((17, 21))
+                break
+            tried_days += 1
+        day = assigned_day or day_slots[idx % len(day_slots)]
+        tod = assigned_tod or (tod_map.get(day, ["evening"]) or [None])[0]
+
         sessions.append(TrainingSession(
             session_name=session.session_name,
             exercises=exercises,
             estimated_duration_minutes=session.estimated_duration_minutes,
             total_sets=len(session.exercises) * (session.exercises[0].sets if session.exercises else 0),  # Approximate
+            day_of_week=day,
+            time_of_day=tod,
             notes=session.notes,
         ))
     

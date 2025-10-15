@@ -430,6 +430,7 @@ class MealAssembler:
         dietary_preference: DietaryPreference = DietaryPreference.NONE,
         allergies: List[str] = None,
         day_number: int = 1,
+        meals_per_day: int = 3,
     ) -> DailyMealPlan:
         """
         Generate a complete daily meal plan hitting macro targets.
@@ -449,22 +450,29 @@ class MealAssembler:
         # Filter foods by dietary preference
         available_foods = self._filter_foods(dietary_preference, allergies)
 
-        # Determine meal structure
-        if training_day:
+        # Determine meal structure (supports 2+ meals)
+        if meals_per_day <= 2:
+            # Two meals: split evenly
             meal_structure = [
-                (MealType.BREAKFAST, 0.25),
-                (MealType.PRE_WORKOUT, 0.15),
-                (MealType.LUNCH, 0.25),
-                (MealType.POST_WORKOUT, 0.15),
-                (MealType.DINNER, 0.20),
+                (MealType.LUNCH, 0.50),
+                (MealType.DINNER, 0.50),
             ]
         else:
-            meal_structure = [
-                (MealType.BREAKFAST, 0.30),
-                (MealType.LUNCH, 0.35),
-                (MealType.SNACK, 0.10),
-                (MealType.DINNER, 0.25),
-            ]
+            if training_day:
+                meal_structure = [
+                    (MealType.BREAKFAST, 0.25),
+                    (MealType.PRE_WORKOUT, 0.15),
+                    (MealType.LUNCH, 0.25),
+                    (MealType.POST_WORKOUT, 0.15),
+                    (MealType.DINNER, 0.20),
+                ]
+            else:
+                meal_structure = [
+                    (MealType.BREAKFAST, 0.30),
+                    (MealType.LUNCH, 0.35),
+                    (MealType.SNACK, 0.10),
+                    (MealType.DINNER, 0.25),
+                ]
 
         # Generate each meal
         meals = []
@@ -674,6 +682,7 @@ class MealAssembler:
         training_days_per_week: int,
         dietary_preference: DietaryPreference = DietaryPreference.NONE,
         allergies: List[str] = None,
+        meals_per_day: int = 3,
     ) -> List[DailyMealPlan]:
         """
         Generate complete 14-day meal plan.
@@ -703,6 +712,7 @@ class MealAssembler:
                 dietary_preference=dietary_preference,
                 allergies=allergies,
                 day_number=day,
+                meals_per_day=meals_per_day,
             )
             meal_plans.append(daily_plan)
 

@@ -40,6 +40,7 @@ from .modality_planner import (
     FacilityAccess as PlannerFacilityAccess,
     MultimodalSessionInternal,
 )
+from typing import Any
 
 
 @dataclass
@@ -83,6 +84,8 @@ class UserProfile:
     # Multimodal preferences (optional)
     modality_preferences: Optional[List[PlannerModalityPreference]] = None
     facility_access: Optional[List[PlannerFacilityAccess]] = None
+    cardio_preference: Optional[str] = None
+    upcoming_events: Optional[List[Dict[str, Any]]] = None
 
     def __post_init__(self):
         if self.available_days is None:
@@ -137,7 +140,7 @@ class PlanGenerator:
         self.modality_planner = ModalityPlanner()
 
     def generate_complete_plan(
-        self, profile: UserProfile, plan_version: int = 1
+        self, profile: UserProfile, plan_version: int = 1, meals_per_day: int = 3
     ) -> Tuple[CompletePlan, List[str]]:
         """
         Generate complete 14-day program from user profile.
@@ -202,12 +205,19 @@ class PlanGenerator:
 
         # Step 7: Generate 14-day meal plan
         meal_plans = self._generate_meal_plans(
-            profile=profile, macro_targets=macro_targets
+            profile=profile, macro_targets=macro_targets, meals_per_day=meals_per_day
         )
 
         # Step 7b: Generate weekly multimodal sessions (optional)
         multimodal_sessions = None
-        if profile.modality_preferences:
+        if profile.modality_preferences or True:
+            # Build day-level availability context
+            day_time_of_day = {}
+            day_time_windows = {}
+            for d in (profile.available_days or []):
+                day_time_of_day[d] = ["morning", "afternoon", "evening"]
+                day_time_windows[d] = []
+
             multimodal_sessions = self.modality_planner.plan_week(
                 preferences=profile.modality_preferences,
                 available_days=profile.available_days or [
@@ -222,6 +232,10 @@ class PlanGenerator:
                 resistance_sessions_per_week=profile.sessions_per_week,
                 facility_access=profile.facility_access,
                 age=profile.age,
+                cardio_preference=profile.cardio_preference,
+                upcoming_events=profile.upcoming_events,
+                day_time_of_day=day_time_of_day,
+                day_time_windows=day_time_windows,
             )
 
         # Step 8: Create complete plan
@@ -409,7 +423,7 @@ class PlanGenerator:
         )
 
     def _generate_meal_plans(
-        self, profile: UserProfile, macro_targets: CalcMacroTargets
+        self, profile: UserProfile, macro_targets: CalcMacroTargets, meals_per_day: int = 3
     ) -> List[DailyMealPlan]:
         """Generate 14-day meal plan"""
         # Convert CalcMacroTargets to MealMacroTargets
@@ -426,6 +440,7 @@ class PlanGenerator:
             training_days_per_week=profile.sessions_per_week,
             dietary_preference=profile.dietary_preference,
             allergies=profile.food_allergies,
+            meals_per_day=meals_per_day,
         )
 
     def _generate_plan_notes(
@@ -458,6 +473,12 @@ class PlanGenerator:
         # Feasibility notes
         if feasibility_result.diagnostics:
             notes.append("Feasibility notes: " + "; ".join(d.message for d in feasibility_result.diagnostics))
+
+        # Cardio recommendation if user prefers to avoid cardio
+        if (profile.cardio_preference or "").lower() == "avoid":
+            notes.append(
+                "Recommendation: include light cardio for health (e.g., brisk walking 20–30 minutes 3×/week) unless medically contraindicated."
+            )
 
         return " | ".join(notes)
 

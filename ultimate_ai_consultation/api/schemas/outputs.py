@@ -67,6 +67,7 @@ class TrainingSession(BaseModel):
     session_id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="Session UUID")
     session_name: str = Field(..., description="Session name (e.g., 'Upper Body A', 'Leg Day')")
     day_of_week: Optional[str] = Field(None, description="Planned day (monday, tuesday, etc.)")
+    time_of_day: Optional[str] = Field(None, description="morning, afternoon, evening")
     
     # Session structure
     exercises: List[ExerciseInstruction] = Field(..., description="Exercises in order")
@@ -223,6 +224,9 @@ class MultimodalSession(BaseModel):
     session_kind: str = Field(..., description="endurance | hiit | sport")
     modality: str = Field(..., description="running | cycling | tennis | rowing | swimming | other")
     day_of_week: Optional[str] = Field(None, description="monday..sunday (optional)")
+    time_of_day: Optional[str] = Field(None, description="morning, afternoon, evening")
+    start_hour: Optional[int] = Field(None, ge=0, le=23, description="Start hour (0-23) if fixed")
+    end_hour: Optional[int] = Field(None, ge=1, le=24, description="End hour (1-24) if fixed")
     duration_minutes: int = Field(..., ge=10, le=300, description="Planned session length")
     intensity_target: Optional[str] = Field(None, description="pace/HR zone/RPE")
     intervals: Optional[List[MultimodalInterval]] = Field(None, description="Interval structure, if any")

@@ -32,6 +32,7 @@ from services.program_generator.meal_assembler import DietaryPreference
 from services.program_generator.modality_planner import (
     ModalityPreference as PlannerModalityPreference,
     FacilityAccess as PlannerFacilityAccess,
+    TimeWindow as PlannerTimeWindow,
 )
 
 logger = logging.getLogger(__name__)
@@ -179,9 +180,26 @@ class ConsultationAdapter:
                 max_duration_minutes=m.max_duration_minutes,
                 facility_needed=m.facility_needed,
                 intensity_preference=m.intensity_preference,
+                seriousness=m.seriousness,
+                seriousness_score=m.seriousness_score,
+                preferred_time_of_day=m.preferred_time_of_day,
             )
             for m in (consultation.modality_preferences or [])
         ]
+        # Attach fixed time windows to corresponding preferences (by order)
+        idx = 0
+        for m in (consultation.modality_preferences or []):
+            if m.fixed_time_windows:
+                tws = [
+                    PlannerTimeWindow(
+                        day_of_week=tw.day_of_week,
+                        start_hour=tw.start_hour,
+                        end_hour=tw.end_hour,
+                    )
+                    for tw in m.fixed_time_windows
+                ]
+                modality_prefs_list[idx].fixed_time_windows = tws  # type: ignore[attr-defined]
+            idx += 1
         
         # Build UserProfile
         profile = UserProfile(
@@ -219,6 +237,15 @@ class ConsultationAdapter:
             # Multimodal
             modality_preferences=modality_prefs_list or None,
             facility_access=facility_access_list or None,
+            cardio_preference=(consultation.cardio_preference or None),
+            upcoming_events=[
+                {
+                    "event_type": e.event_type,
+                    "weeks_until": e.weeks_until,
+                    "event_name": e.event_name,
+                }
+                for e in (consultation.upcoming_events or [])
+            ] or None,
         )
         
         logger.info(

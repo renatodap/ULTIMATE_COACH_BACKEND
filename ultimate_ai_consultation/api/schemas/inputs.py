@@ -11,6 +11,15 @@ from pydantic import BaseModel, Field, field_validator
 from enum import Enum
 
 
+class TimeWindowInput(BaseModel):
+    """Explicit time window, optionally tied to a specific weekday."""
+
+    start_hour: int = Field(..., ge=0, le=23, description="Start hour (0-23)")
+    end_hour: int = Field(..., ge=1, le=24, description="End hour (1-24)")
+    day_of_week: Optional[str] = Field(
+        None, description="Optional: monday..sunday if tied to a specific day"
+    )
+
 class TrainingModalityInput(BaseModel):
     """Training modality from consultation."""
     
@@ -62,6 +71,10 @@ class TrainingAvailabilityInput(BaseModel):
     day_of_week: str = Field(..., description="monday, tuesday, wednesday, thursday, friday, saturday, sunday")
     time_of_day: List[str] = Field(default_factory=list, description="morning, afternoon, evening")
     duration_minutes: Optional[int] = Field(None, ge=15, le=300, description="Available duration")
+    time_windows: List[TimeWindowInput] = Field(
+        default_factory=list,
+        description="Optional explicit time windows per day"
+    )
 
 
 class ImprovementGoalInput(BaseModel):
@@ -92,6 +105,20 @@ class ModalityPreferenceInput(BaseModel):
     max_duration_minutes: Optional[int] = Field(None, ge=10, le=300, description="Maximum session length")
     facility_needed: Optional[str] = Field(None, description="court, bike, pool, track, none")
     intensity_preference: Optional[str] = Field(None, description="low, moderate, high")
+    seriousness: Optional[str] = Field(
+        None,
+        description="How serious: hobby, recreational, competitive"
+    )
+    seriousness_score: Optional[int] = Field(
+        None, ge=1, le=10, description="1 (casual) .. 10 (very serious)"
+    )
+    preferred_time_of_day: Optional[str] = Field(
+        None, description="Preferred time: morning, afternoon, evening"
+    )
+    fixed_time_windows: List[TimeWindowInput] = Field(
+        default_factory=list,
+        description="If set, schedule modality in these exact windows"
+    )
 
 
 class DifficultyInput(BaseModel):
@@ -175,6 +202,9 @@ class ConsultationTranscript(BaseModel):
     modality_preferences: List[ModalityPreferenceInput] = Field(
         default_factory=list,
         description="Preferences for running/cycling/tennis/HIIT/etc."
+    )
+    cardio_preference: Optional[str] = Field(
+        None, description="avoid, neutral, prefer (global cardio stance)"
     )
     
     # Goals and context
@@ -298,6 +328,12 @@ class GenerationOptions(BaseModel):
     meal_prep_level: str = Field(
         default="moderate",
         description="Meal prep complexity: minimal, moderate, advanced"
+    )
+    meals_per_day: int = Field(
+        default=3,
+        ge=1,
+        le=6,
+        description="Preferred meals per day (2 supported for Phase A)"
     )
     
     budget_per_week_usd: Optional[float] = Field(
