@@ -131,9 +131,16 @@ Example Adherence POST
 Endpoints (suggested, implement server‑side)
 - POST /programs/save (server) → persists ProgramBundle via ProgramPersistenceService
 - GET /calendar?date&range → lists calendar_events for user
+- GET /calendar/full?date&range → lists calendar_events enriched with plan details (exercises/intervals/drills/meal items) to minimize round trips
+- GET /calendar/summary?user_id&start_date&end_date → returns per-day counts by status and event type (useful for heatmap/strip calendar)
+- GET /programs/current?user_id&include_bundle=false → returns latest program (optionally includes full ProgramBundle JSON)
 - POST /adherence → AdherenceService.set_adherence
 - POST /plan_changes → creates plan_change_events and new planned instance (server computes diff)
 - GET /overrides/today → returns latest day_overrides for current date
+- POST /overrides/run { user_id, program_id, dry_run=true } → runs DailyAdjuster for today; with dry_run it only previews overrides (does not write).
+Notifications
+- GET /notifications?user_id&since? → returns recent notifications for the user (e.g., overrides applied)
+- POST /notifications/read { user_id, notification_id } → marks a notification as read
 - GET /programs/current → returns the latest program snapshot and summary metrics
 
 Plan Logs (attach existing logs to planned instances)
@@ -143,6 +150,14 @@ Plan Logs (attach existing logs to planned instances)
 - POST /planlogs/attach_meal
   - body: { user_id, meal_id, planned_meal_instance_id, adherence_json? }
   - effect: updates meals row with planned link; use afterward POST /adherence to set status
+
+Single-shot log + attach + adherence
+- POST /planlogs/log_and_attach_activity
+  - body: CreateActivityRequest + { user_id, planned_session_instance_id, similarity_score?, status?, adherence_json? }
+  - effect: creates activity, attaches to planned session, optionally writes adherence (status completed/similar/skipped)
+- POST /planlogs/log_and_attach_meal
+  - body: CreateMealRequest + { user_id, planned_meal_instance_id, adherence_json?, status? }
+  - effect: creates meal, attaches to planned meal, optionally writes adherence (status completed/similar/skipped)
 
 Client Responsibilities
 - Timezone: provide user tz or rely on server to resolve; display local time accordingly

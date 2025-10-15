@@ -28,7 +28,7 @@ class DailyAdjusterService:
     def _today(self) -> date:
         return date.today()
 
-    def adjust_today(self, user_id: str, program_id: str) -> Dict[str, Any]:
+    def adjust_today(self, user_id: str, program_id: str, dry_run: bool = False) -> Dict[str, Any]:
         """
         Compute and apply day-level adjustments for the next 24h.
 
@@ -79,7 +79,15 @@ class DailyAdjusterService:
                 "confidence": 0.8,
                 "nutrition_override": nutrition,
             }
-            client.table("day_overrides").insert(dor).execute()
+            if not dry_run:
+                client.table("day_overrides").insert(dor).execute()
+                # Notification
+                client.table("notifications").insert({
+                    "user_id": user_id,
+                    "type": "override",
+                    "message": "Nutrition adjusted today due to missed workout yesterday",
+                    "metadata": {"reason": "missed_workout", "delta_calories_pct": nutrition["delta_calories_pct"]},
+                }).execute()
             overrides_written.append("nutrition")
 
         # Training downgrade if poor sleep
@@ -100,8 +108,14 @@ class DailyAdjusterService:
                 "confidence": 0.7,
                 "training_override": training,
             }
-            client.table("day_overrides").insert(dor).execute()
+            if not dry_run:
+                client.table("day_overrides").insert(dor).execute()
+                client.table("notifications").insert({
+                    "user_id": user_id,
+                    "type": "override",
+                    "message": "Training adjusted today due to poor sleep",
+                    "metadata": {"reason": "poor_sleep", "volume_multiplier": training["volume_multiplier"]},
+                }).execute()
             overrides_written.append("training")
 
-        return {"date": str(today), "overrides": overrides_written}
-
+        return {"date": str(today), "overrides": overrides_written, "dry_run": dry_run}

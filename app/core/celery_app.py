@@ -33,5 +33,8 @@ celery_app.conf.update(
     worker_prefetch_multiplier=1,
     task_acks_late=True,
     result_expires=3600,
+    # Make startup resilient on slow Redis and keep resource usage low by default
+    broker_connection_retry_on_startup=True,
+    broker_pool_limit=int(os.getenv("CELERY_BROKER_POOL_LIMIT", "5")),
+    worker_concurrency=int(os.getenv("CELERY_WORKER_CONCURRENCY", "2")),
 )
-
