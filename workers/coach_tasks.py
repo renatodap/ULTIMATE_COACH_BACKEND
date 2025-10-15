@@ -17,6 +17,7 @@ import openai
 import os
 
 from app.core.celery_app import celery_app
+from app.services.wearables.wearable_sync_service import wearable_sync_service
 from app.services.supabase_service import get_service_client
 
 logger = logging.getLogger(__name__)
@@ -381,6 +382,22 @@ def warm_user_cache(user_id: str):
 
     except Exception as e:
         logger.error(f"[CacheWarmTask] ❌ Cache warming failed: {e}", exc_info=True)
+        raise
+
+
+# ============================================================================
+# WEARABLES
+# ============================================================================
+
+@celery_app.task(name="wearables.start_sync", max_retries=2)
+def wearables_start_sync(user_id: str, provider: str, days: int = 7) -> dict:
+    """Background wearable sync task (runs the same logic as synchronous path)."""
+    from uuid import UUID
+    import asyncio
+    try:
+        return asyncio.run(wearable_sync_service.start_sync(UUID(user_id), provider, days))
+    except Exception as e:
+        logger.error(f"[WearablesTask] ❌ Sync failed: {e}", exc_info=True)
         raise
 
 

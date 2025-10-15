@@ -6,7 +6,7 @@ Feature-flagged; acts as a stub if Garmy is unavailable or disabled.
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 from uuid import UUID
 
@@ -112,21 +112,81 @@ class GarminGarmyProvider(WearableProvider):
 
             for a in garmin_activities or []:
                 # Best-effort field extraction
-                wearable_id = str(a.get('activityId') or a.get('id') or '')
+                wearable_id = str(
+                    a.get('ActivityId')
+                    or a.get('activityId')
+                    or a.get('id')
+                    or ''
+                )
                 if not wearable_id:
                     continue
-                name = a.get('activityName') or a.get('name') or 'Workout'
-                gtype = a.get('activityType') or a.get('type') or ''
-                start_time = a.get('startTimeLocal') or a.get('startTimeGmt') or a.get('startTime')
-                end_time = a.get('endTimeLocal') or a.get('endTimeGmt') or a.get('endTime')
-                duration_sec = a.get('duration') or a.get('durationSec')
-                calories = a.get('calories') or a.get('caloriesBurned')
-                device = a.get('deviceName') or a.get('device')
+                name = (
+                    a.get('ActivityName')
+                    or a.get('activityName')
+                    or a.get('name')
+                    or 'Workout'
+                )
+                gtype = (
+                    a.get('ActivityType')
+                    or a.get('activityType')
+                    or a.get('type')
+                    or ''
+                )
+
+                # Timestamps: prefer Garmin export keys
+                start_ts = a.get('StartTimeInSeconds')
+                duration_sec = (
+                    a.get('DurationInSeconds')
+                    or a.get('duration')
+                    or a.get('durationSec')
+                )
+                start_time = None
+                end_time = None
+                if start_ts is not None:
+                    try:
+                        start_dt = datetime.fromtimestamp(int(start_ts), tz=timezone.utc)
+                        start_time = start_dt.isoformat()
+                        if duration_sec:
+                            end_dt = start_dt + timedelta(seconds=float(duration_sec))
+                            end_time = end_dt.isoformat()
+                    except Exception:
+                        start_time = None
+                        end_time = None
+                else:
+                    # Fallback to other keys
+                    start_time = a.get('startTimeLocal') or a.get('startTimeGmt') or a.get('startTime')
+                    end_time = a.get('endTimeLocal') or a.get('endTimeGmt') or a.get('endTime')
+                    duration_sec = duration_sec
+
+                calories = (
+                    a.get('ActiveKilocalories')
+                    or a.get('calories')
+                    or a.get('caloriesBurned')
+                )
+                device = a.get('DeviceName') or a.get('deviceName') or a.get('device')
                 url = a.get('activityUrl') or a.get('url')
-                distance_m = a.get('distance') or a.get('distanceMeters')
-                avg_hr = a.get('avgHR') or a.get('averageHR')
-                max_hr = a.get('maxHR') or a.get('maxHeartRate')
-                elev_gain = a.get('elevationGain') or a.get('elevationGainMeters')
+                distance_m = (
+                    a.get('DistanceInMeters')
+                    or a.get('distance')
+                    or a.get('distanceMeters')
+                )
+                avg_hr = (
+                    a.get('AverageHeartRateInBeatsPerMinute')
+                    or a.get('avgHR')
+                    or a.get('averageHR')
+                )
+                max_hr = (
+                    a.get('MaxHeartRateInBeatsPerMinute')
+                    or a.get('maxHR')
+                    or a.get('maxHeartRate')
+                )
+                elev_gain = (
+                    a.get('TotalElevationGainInMeters')
+                    or a.get('elevationGain')
+                    or a.get('elevationGainMeters')
+                )
+                avg_speed_mps = a.get('AverageSpeedInMetersPerSecond')
+                avg_pace_min_per_km = a.get('AveragePaceInMinutesPerKilometer')
 
                 metrics_json: Dict[str, Any] = {}
                 if distance_m is not None:
@@ -140,13 +200,29 @@ class GarminGarmyProvider(WearableProvider):
 
                 # avg pace (min/km) if distance+duration present
                 try:
-                    if distance_m and duration_sec and float(distance_m) > 0:
+                    if avg_pace_min_per_km is not None:
+                        pace_min = float(avg_pace_min_per_km)
+                        minutes = int(pace_min)
+                        seconds = int(round((pace_min - minutes) * 60))
+                        metrics_json['avg_pace'] = f"{minutes}:{str(seconds).zfill(2)}/km"
+                    elif distance_m and duration_sec and float(distance_m) > 0:
                         pace_min = (float(duration_sec) / 60.0) / (float(distance_m) / 1000.0)
                         minutes = int(pace_min)
                         seconds = int(round((pace_min - minutes) * 60))
                         metrics_json['avg_pace'] = f"{minutes}:{str(seconds).zfill(2)}/km"
                 except Exception:
                     pass
+
+                # avg speed kph if provided in m/s
+                try:
+                    if avg_speed_mps is not None:
+                        metrics_json['avg_speed_kph'] = round(float(avg_speed_mps) * 3.6, 2)
+                except Exception:
+                    pass
+
+                # Optional steps
+                if a.get('Steps') is not None:
+                    metrics_json['steps'] = int(a.get('Steps'))
 
                 activity_obj = {
                     'user_id': str(user_id),

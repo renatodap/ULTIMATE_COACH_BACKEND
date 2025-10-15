@@ -27,5 +27,11 @@ EXPOSE 8000
 
 # Entrypoint switches between API / Celery worker / Celery beat via APP_PROCESS env
 COPY start.sh ./
-RUN chmod +x ./start.sh
+RUN chmod +x ./start.sh \
+    && groupadd -g 10001 app || true \
+    && useradd -m -u 10001 -g 10001 app \
+    && chown -R app:app /app
+
+# Run as non-root user to avoid privilege warnings
+USER app
 CMD ["sh", "./start.sh"]

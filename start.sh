@@ -6,11 +6,11 @@ CMD=${APP_PROCESS:-api}
 echo "[start] APP_PROCESS=$CMD"
 
 if [ "$CMD" = "worker" ]; then
-  exec celery -A app.core.celery_app.celery_app worker --loglevel="${CELERY_LOG_LEVEL:-INFO}"
+  # Enforce non-root with explicit uid/gid to silence Celery SecurityWarning
+  exec celery -A app.core.celery_app.celery_app worker --loglevel="${CELERY_LOG_LEVEL:-INFO}" --uid=10001 --gid=10001
 elif [ "$CMD" = "beat" ]; then
-  exec celery -A app.core.celery_app.celery_app beat --loglevel="${CELERY_LOG_LEVEL:-INFO}"
+  exec celery -A app.core.celery_app.celery_app beat --loglevel="${CELERY_LOG_LEVEL:-INFO}" --uid=10001 --gid=10001
 else
   # api (default)
   exec uvicorn app.main:app --host 0.0.0.0 --port "${PORT:-8000}"
 fi
-
