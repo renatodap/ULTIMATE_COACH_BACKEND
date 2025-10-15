@@ -5,10 +5,12 @@ Handles activity tracking, daily summaries, and CRUD operations.
 """
 
 import structlog
-from fastapi import APIRouter, HTTPException, status, Depends, Query
+from fastapi import APIRouter, HTTPException, status, Depends, Query, Request
 from typing import Optional
 from uuid import UUID
 from datetime import date
+import json
+from pydantic import ValidationError
 
 from app.models.activities import (
     CreateActivityRequest,
@@ -231,6 +233,46 @@ async def get_activity(
         )
 
 
+# Helper to parse CreateActivityRequest from tolerant payloads
+async def _parse_create_activity_request(req: Request) -> CreateActivityRequest:
+    """
+    Tolerant body parser for CreateActivityRequest.
+
+    Accepts:
+    - application/json (object)
+    - text/plain with a JSON object string
+    Falls back to trying JSON decode of raw body.
+    """
+    ctype = (req.headers.get("content-type") or "").split(";")[0].strip().lower()
+    try:
+        data: dict
+        if ctype.startswith("text/plain"):
+            raw = await req.body()
+            text = raw.decode("utf-8", errors="replace") if isinstance(raw, (bytes, bytearray)) else str(raw)
+            data = json.loads(text)
+        else:
+            # Default to JSON parsing for application/json or unknown
+            try:
+                data = await req.json()
+            except Exception:
+                raw = await req.body()
+                text = raw.decode("utf-8", errors="replace") if isinstance(raw, (bytes, bytearray)) else str(raw)
+                data = json.loads(text)
+
+        if not isinstance(data, dict):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Request body must be a JSON object",
+            )
+
+        return CreateActivityRequest(**data)
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid JSON: {e.msg}")
+    except ValidationError as e:
+        # Convert Pydantic errors to FastAPI 422 format
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=e.errors())
+
+
 @router.post(
     "/activities",
     response_model=Activity,
@@ -239,7 +281,7 @@ async def get_activity(
     description="Log a new activity with metrics"
 )
 async def create_activity(
-    request: CreateActivityRequest,
+    payload: CreateActivityRequest = Depends(_parse_create_activity_request),
     current_user: dict = Depends(get_current_user)
 ):
     """
@@ -263,21 +305,21 @@ async def create_activity(
         logger.info(
             "creating_activity",
             user_id=current_user["id"],
-            category=request.category,
-            activity_name=request.activity_name
+            category=payload.category,
+            activity_name=payload.activity_name
         )
 
         activity = await activity_service.create_activity(
             user_id=UUID(current_user["id"]),
-            category=request.category,
-            activity_name=request.activity_name,
-            start_time=request.start_time,
-            end_time=request.end_time,
-            duration_minutes=request.duration_minutes,
-            calories_burned=request.calories_burned,
-            intensity_mets=request.intensity_mets,
-            metrics=request.metrics,
-            notes=request.notes
+            category=payload.category,
+            activity_name=payload.activity_name,
+            start_time=payload.start_time,
+            end_time=payload.end_time,
+            duration_minutes=payload.duration_minutes,
+            calories_burned=payload.calories_burned,
+            intensity_mets=payload.intensity_mets,
+            metrics=payload.metrics,
+            notes=payload.notes
         )
 
         logger.info(
