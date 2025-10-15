@@ -53,11 +53,11 @@ class ActivityService:
             List of activity dicts sorted by start_time DESC
         """
         try:
-            # Default date range: last 30 days
+            # Default date range: last 90 days (more inclusive)
             if not end_date:
                 end_date = date.today()
             if not start_date:
-                start_date = end_date - timedelta(days=30)
+                start_date = end_date - timedelta(days=90)
 
             logger.info(
                 "fetching_user_activities",
