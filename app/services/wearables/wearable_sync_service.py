@@ -51,15 +51,24 @@ class WearableSyncService:
 
         data = {
             "user_id": str(user_id),
-            "provider": provider,
+            "provider": (provider or "").lower(),
             "status": status,
             "credentials_encrypted": cred_blob,
             "updated_at": self._now().isoformat(),
         }
 
         # Upsert wearable_accounts by (user_id, provider)
-        resp = self.db.table("wearable_accounts").upsert(data, on_conflict=["user_id", "provider"]).execute()
-        return resp.data[0] if resp.data else data
+        try:
+            resp = (
+                self.db
+                .table("wearable_accounts")
+                .upsert([data], on_conflict=["user_id", "provider"])  # pass list for stability
+                .execute()
+            )
+            return resp.data[0] if resp.data else data
+        except Exception as e:
+            logger.error("wearable_account_upsert_failed", error=str(e), provider=data["provider"], user_id=str(user_id))
+            raise
 
     async def start_sync(self, user_id: UUID, provider: str, days: int = 7) -> Dict[str, Any]:
         """Start a sync job synchronously (MVP). Returns job record."""
