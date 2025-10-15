@@ -1193,7 +1193,7 @@ class SupabaseService:
 supabase_service = SupabaseService()
 
 
-def get_service_client() -> Client:
+    def get_service_client() -> Client:
     """
     Get the raw Supabase client for services that need direct access.
 
@@ -1201,3 +1201,45 @@ def get_service_client() -> Client:
         Supabase Client instance
     """
     return supabase_service.client
+
+    # ========================================================================
+    # WEARABLE UPSERTS (Activities + Health Metrics)
+    # ========================================================================
+
+    async def upsert_activities_wearable(self, activities: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Batch upsert activities using (user_id, wearable_activity_id) as conflict key.
+
+        Expects API-shaped activities (activity_name/category fields etc.).
+        """
+        if not activities:
+            return []
+
+        # Map API fields to DB fields for all rows
+        db_rows = [self._map_activity_to_db(a) for a in activities]
+        try:
+            response = (
+                self.client.table("activities")
+                .upsert(db_rows, on_conflict=["user_id", "wearable_activity_id"])
+                .execute()
+            )
+            # Map DB fields back to API fields
+            return [self._map_activity_from_db(r) for r in (response.data or [])]
+        except Exception as e:
+            logger.error(f"Failed to upsert wearable activities: {e}")
+            raise
+
+    async def create_health_metrics_bulk(self, metrics: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Insert health metrics in bulk. Table: health_metrics
+
+        Each item should include: user_id, recorded_at (ISO), metric_type, value (JSON)
+        """
+        if not metrics:
+            return []
+        try:
+            response = self.client.table("health_metrics").upsert(metrics, on_conflict=["user_id", "metric_type", "recorded_at"]).execute()
+            return response.data or []
+        except Exception as e:
+            logger.error(f"Failed to insert health metrics: {e}")
+            raise

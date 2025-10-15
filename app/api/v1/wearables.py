@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 
 from app.api.dependencies import get_current_user
 from app.services.wearables.wearable_sync_service import wearable_sync_service
+from workers.coach_tasks import wearables_start_sync
 
 logger = structlog.get_logger()
 
@@ -52,7 +53,7 @@ async def connect_wearable_account(
     "/wearables/{provider}/sync",
     status_code=status.HTTP_202_ACCEPTED,
     summary="Trigger wearable sync",
-    description="Starts a sync job (synchronous MVP) for the configured provider",
+    description="Enqueue a background sync job for the configured provider",
 )
 async def trigger_wearable_sync(
     provider: str,
@@ -60,8 +61,13 @@ async def trigger_wearable_sync(
     current_user: dict = Depends(get_current_user),
 ):
     try:
-        job = await wearable_sync_service.start_sync(UUID(current_user["id"]), provider, days=days)
-        return {"job": job}
+        # Enqueue background job
+        async def _enqueue() -> Dict[str, Any]:
+            return wearables_start_sync.delay(current_user["id"], provider, days).id  # type: ignore
+
+        # Celery returns task id
+        task_id = wearables_start_sync.delay(current_user["id"], provider, days).id  # type: ignore
+        return {"enqueued": True, "task_id": task_id}
     except Exception as e:
         logger.error("trigger_sync_failed", error=str(e))
         raise HTTPException(status_code=500, detail="Failed to trigger sync")
@@ -79,4 +85,3 @@ async def get_wearable_status(current_user: dict = Depends(get_current_user)):
     except Exception as e:
         logger.error("get_status_failed", error=str(e))
         raise HTTPException(status_code=500, detail="Failed to get status")
-

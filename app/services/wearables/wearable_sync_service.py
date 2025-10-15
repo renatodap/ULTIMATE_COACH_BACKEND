@@ -104,11 +104,22 @@ class WearableSyncService:
             start = end - timedelta(days=days)
             stats = await prov.sync_range(user_id, start, end)
 
+            # Persist results
+            activities = stats.get('activities') or []
+            health = stats.get('health_metrics') or []
+
+            from app.services.supabase_service import SupabaseService
+            s = SupabaseService()
+            if activities:
+                await s.upsert_activities_wearable(activities)
+            if health:
+                await s.create_health_metrics_bulk(health)
+
             # Finish job
             finish = {
                 "status": "success",
                 "finished_at": self._now().isoformat(),
-                "stats": stats,
+                "stats": {**(stats or {}), "persisted": {"activities": len(activities), "health": len(health)}},
             }
             self.db.table("wearable_sync_jobs").update(finish).eq("id", job_id).execute()
 
@@ -148,4 +159,3 @@ class WearableSyncService:
 
 
 wearable_sync_service = WearableSyncService()
-

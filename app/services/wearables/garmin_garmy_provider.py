@@ -6,7 +6,7 @@ Feature-flagged; acts as a stub if Garmy is unavailable or disabled.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Tuple
 from uuid import UUID
 
@@ -60,14 +60,205 @@ class GarminGarmyProvider(WearableProvider):
     async def sync_range(
         self, user_id: UUID, start: date, end: date, metrics: Optional[List[str]] = None
     ) -> Dict[str, Any]:
-        # Minimal stub: in a follow-up, map activities and metrics and persist
+        """
+        Fetch Garmin data via Garmy and map to domain payloads.
+        Returns dict with 'activities' and 'health_metrics'.
+        """
         if not (self._enabled and self._available and self._client):
             logger.info("garmin_sync_skipped", enabled=self._enabled, available=self._available)
-            return {"activities": 0, "metrics": {}}
+            return {"activities": [], "health_metrics": [], "counts": {"activities": 0}}
 
-        # TODO: Implement actual calls to self._client.metrics and insert via SupabaseService
         logger.info("garmin_sync_range", user_id=str(user_id), start=str(start), end=str(end))
-        return {"activities": 0, "metrics": {}}
+
+        api = self._client
+        activities: List[Dict[str, Any]] = []
+        health: List[Dict[str, Any]] = []
+
+        # Helpers
+        def iso(dt: datetime | str) -> str:
+            if isinstance(dt, str):
+                return dt
+            return dt.isoformat()
+
+        def map_category(garmin_type: str) -> str:
+            g = (garmin_type or '').lower()
+            if any(k in g for k in ['run', 'cycle', 'bike', 'walk', 'cardio']):
+                return 'cardio_steady_state'
+            if any(k in g for k in ['hiit', 'interval']):
+                return 'cardio_interval'
+            if any(k in g for k in ['strength', 'weights', 'resistance']):
+                return 'strength_training'
+            if any(k in g for k in ['yoga', 'stretch', 'mobility']):
+                return 'flexibility'
+            if any(k in g for k in ['tennis', 'basketball', 'soccer', 'sport']):
+                return 'sports'
+            return 'other'
+
+        # Activities
+        try:
+            # Attempt to list activities in range; fallbacks are guarded
+            act_metric = getattr(api, 'metrics', None)
+            get_fn = getattr(act_metric, 'get', None)
+            list_fn = getattr(act_metric, 'list', None)
+            garmin_activities = []
+            if act_metric and get_fn:
+                # Many libs use metrics.get('activities').list(...)
+                try:
+                    acts = act_metric.get('activities')
+                    if hasattr(acts, 'list'):
+                        garmin_activities = acts.list(start=start, end=end)
+                except Exception:
+                    garmin_activities = []
+
+            for a in garmin_activities or []:
+                # Best-effort field extraction
+                wearable_id = str(a.get('activityId') or a.get('id') or '')
+                if not wearable_id:
+                    continue
+                name = a.get('activityName') or a.get('name') or 'Workout'
+                gtype = a.get('activityType') or a.get('type') or ''
+                start_time = a.get('startTimeLocal') or a.get('startTimeGmt') or a.get('startTime')
+                end_time = a.get('endTimeLocal') or a.get('endTimeGmt') or a.get('endTime')
+                duration_sec = a.get('duration') or a.get('durationSec')
+                calories = a.get('calories') or a.get('caloriesBurned')
+                device = a.get('deviceName') or a.get('device')
+                url = a.get('activityUrl') or a.get('url')
+                distance_m = a.get('distance') or a.get('distanceMeters')
+                avg_hr = a.get('avgHR') or a.get('averageHR')
+                max_hr = a.get('maxHR') or a.get('maxHeartRate')
+                elev_gain = a.get('elevationGain') or a.get('elevationGainMeters')
+
+                metrics_json: Dict[str, Any] = {}
+                if distance_m is not None:
+                    metrics_json['distance_km'] = round(float(distance_m) / 1000.0, 3)
+                if avg_hr is not None:
+                    metrics_json['avg_heart_rate'] = int(avg_hr)
+                if max_hr is not None:
+                    metrics_json['max_heart_rate'] = int(max_hr)
+                if elev_gain is not None:
+                    metrics_json['elevation_gain_m'] = float(elev_gain)
+
+                # avg pace (min/km) if distance+duration present
+                try:
+                    if distance_m and duration_sec and float(distance_m) > 0:
+                        pace_min = (float(duration_sec) / 60.0) / (float(distance_m) / 1000.0)
+                        minutes = int(pace_min)
+                        seconds = int(round((pace_min - minutes) * 60))
+                        metrics_json['avg_pace'] = f"{minutes}:{str(seconds).zfill(2)}/km"
+                except Exception:
+                    pass
+
+                activity_obj = {
+                    'user_id': str(user_id),
+                    'category': map_category(str(gtype)),
+                    'activity_name': name,
+                    'start_time': iso(start_time) if start_time else None,
+                    'end_time': iso(end_time) if end_time else None,
+                    'duration_minutes': int(round(float(duration_sec) / 60.0)) if duration_sec else None,
+                    'calories_burned': int(calories) if calories is not None else None,
+                    'intensity_mets': None,  # unknown; leave for estimator if needed
+                    'metrics': metrics_json,
+                    'notes': None,
+                    'wearable_activity_id': wearable_id,
+                    'device_name': device,
+                    'wearable_url': url,
+                    'raw_wearable_data': a,
+                }
+                activities.append(activity_obj)
+        except Exception as e:
+            logger.warning("garmin_fetch_activities_failed", error=str(e))
+
+        # Heart rate / Stress / Sleep (daily-level examples)
+        def as_dt(s: str) -> datetime:
+            try:
+                return datetime.fromisoformat(s.replace('Z', '+00:00'))
+            except Exception:
+                return datetime.utcnow()
+
+        try:
+            metrics_api = getattr(api, 'metrics', None)
+            if metrics_api and hasattr(metrics_api, 'get'):
+                # Heart rate daily
+                try:
+                    hr_api = metrics_api.get('heart_rate')
+                    if hasattr(hr_api, 'list'):
+                        hr_days = hr_api.list(start=start, end=end)
+                        for d in hr_days or []:
+                            recorded = d.get('day') or d.get('date') or d.get('timestamp')
+                            if not recorded:
+                                continue
+                            value = {
+                                'resting_hr': d.get('restingHR'),
+                                'avg_hr': d.get('averageHR'),
+                                'max_hr': d.get('maxHR'),
+                            }
+                            health.append({
+                                'user_id': str(user_id),
+                                'recorded_at': iso(recorded),
+                                'metric_type': 'heart_rate',
+                                'value': value,
+                            })
+                except Exception:
+                    pass
+
+                # Stress daily
+                try:
+                    stress_api = metrics_api.get('stress')
+                    if hasattr(stress_api, 'list'):
+                        st_days = stress_api.list(start=start, end=end)
+                        for d in st_days or []:
+                            recorded = d.get('day') or d.get('date') or d.get('timestamp')
+                            if not recorded:
+                                continue
+                            value = {
+                                'avg_stress': d.get('avgStressLevel'),
+                                'max_stress': d.get('maxStressLevel'),
+                            }
+                            health.append({
+                                'user_id': str(user_id),
+                                'recorded_at': iso(recorded),
+                                'metric_type': 'stress',
+                                'value': value,
+                            })
+                except Exception:
+                    pass
+
+                # Sleep daily
+                try:
+                    sleep_api = metrics_api.get('sleep')
+                    if hasattr(sleep_api, 'list') or hasattr(sleep_api, 'get'):
+                        # Prefer list over range
+                        sl_days = []
+                        if hasattr(sleep_api, 'list'):
+                            sl_days = sleep_api.list(start=start, end=end)
+                        elif hasattr(sleep_api, 'get'):
+                            # Get may accept date strings
+                            cur = start
+                            while cur <= end:
+                                sl_days.extend(sleep_api.get(str(cur)))
+                                cur = date.fromordinal(cur.toordinal() + 1)
+                        for s in sl_days or []:
+                            recorded = s.get('day') or s.get('date') or s.get('sleepDate')
+                            if not recorded:
+                                continue
+                            value = {
+                                'overall_sleep_score': s.get('overall_sleep_score') or s.get('score'),
+                                'duration_minutes': s.get('durationMinutes') or s.get('duration'),
+                                'stages': s.get('stages') or {},
+                            }
+                            health.append({
+                                'user_id': str(user_id),
+                                'recorded_at': iso(recorded),
+                                'metric_type': 'sleep',
+                                'value': value,
+                            })
+                except Exception:
+                    pass
+
+        except Exception as e:
+            logger.warning("garmin_fetch_metrics_failed", error=str(e))
+
+        return {"activities": activities, "health_metrics": health, "counts": {"activities": len(activities), "health": len(health)}}
 
 
 provider = GarminGarmyProvider()
