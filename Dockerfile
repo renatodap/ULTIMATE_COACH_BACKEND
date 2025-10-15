@@ -25,5 +25,7 @@ COPY . .
 # Expose port
 EXPOSE 8000
 
-# Run application
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Entrypoint switches between API / Celery worker / Celery beat via APP_PROCESS env
+COPY start.sh ./
+RUN chmod +x ./start.sh
+CMD ["sh", "./start.sh"]
