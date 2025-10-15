@@ -8,7 +8,7 @@ Handles comprehensive user onboarding flow including:
 - Macro calculation and target setting
 """
 
-from datetime import datetime
+from datetime import datetime, date
 from typing import List, Literal, Optional
 from uuid import UUID
 
@@ -44,7 +44,8 @@ class OnboardingData(BaseModel):
     workout_frequency: int = Field(..., ge=0, le=7, description="Workouts per week")
 
     # Step 2: Physical Stats (ALWAYS IN METRIC - frontend converts if needed)
-    age: int = Field(..., ge=13, le=120)
+    birth_date: Optional[date] = Field(default=None, description="Birth date (YYYY-MM-DD)")
+    age: Optional[int] = Field(default=None, ge=13, le=120)
     biological_sex: Literal['male', 'female'] = Field(..., description="Biological sex for BMR calculation")
     height_cm: float = Field(..., ge=100, le=300)
     current_weight_kg: float = Field(..., ge=30, le=300)
@@ -89,6 +90,20 @@ class OnboardingData(BaseModel):
             # Goal can't be more than 50% different from current (safety check)
             if abs(v - current) > current * 0.5:
                 raise ValueError('goal_weight_kg must be within 50% of current_weight_kg')
+        return v
+
+    @field_validator('birth_date')
+    @classmethod
+    def validate_birth_or_age(cls, v: Optional[date], info) -> Optional[date]:
+        bdate = v
+        age = info.data.get('age')
+        if bdate is None and age is None:
+            raise ValueError('Either birth_date or age is required')
+        if bdate is not None:
+            today = date.today()
+            derived = int((today - bdate).days // 365.25)
+            if derived < 13 or derived > 120:
+                raise ValueError('Derived age from birth_date must be between 13 and 120')
         return v
 
 
@@ -200,8 +215,16 @@ async def complete_onboarding(
             activity_level=data.activity_level
         )
 
+        # Derive age
+        used_age: int
+        if data.birth_date:
+            today = date.today()
+            used_age = int((today - data.birth_date).days // 365.25)
+        else:
+            used_age = int(data.age)  # validator ensures one present
+
         targets = calculate_targets(
-            age=data.age,
+            age=used_age,
             sex=data.biological_sex,
             height_cm=data.height_cm,
             current_weight_kg=data.current_weight_kg,
@@ -234,7 +257,8 @@ async def complete_onboarding(
         # Step 2: Prepare profile update
         profile_update = {
             # Physical stats
-            'age': data.age,
+            **({'birth_date': data.birth_date.isoformat()} if data.birth_date else {}),
+            **({'age': data.age} if data.age is not None else {}),
             'biological_sex': data.biological_sex,
             'height_cm': data.height_cm,
             'current_weight_kg': data.current_weight_kg,
