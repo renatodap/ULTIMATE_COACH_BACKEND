@@ -1162,47 +1162,6 @@ class SupabaseService:
             raise
 
     # ========================================================================
-    # RAW SQL EXECUTION (For migrations)
-    # ========================================================================
-
-    async def execute_sql(self, sql: str) -> Dict[str, Any]:
-        """
-        Execute raw SQL (admin only).
-
-        WARNING: Use with caution. Only for migrations.
-
-        Args:
-            sql: SQL statement
-
-        Returns:
-            Result dict
-        """
-        try:
-            # Note: Supabase Python client doesn't support raw SQL execution
-            # Migrations should be applied via Supabase dashboard or CLI
-            raise NotImplementedError(
-                "Raw SQL execution not supported via Supabase client. "
-                "Use Supabase dashboard SQL Editor or CLI for migrations."
-            )
-        except Exception as e:
-            logger.error(f"Failed to execute SQL: {e}")
-            raise
-
-
-# Global singleton instance
-supabase_service = SupabaseService()
-
-
-    def get_service_client() -> Client:
-    """
-    Get the raw Supabase client for services that need direct access.
-
-    Returns:
-        Supabase Client instance
-    """
-    return supabase_service.client
-
-    # ========================================================================
     # WEARABLE UPSERTS (Activities + Health Metrics)
     # ========================================================================
 
@@ -1238,8 +1197,53 @@ supabase_service = SupabaseService()
         if not metrics:
             return []
         try:
-            response = self.client.table("health_metrics").upsert(metrics, on_conflict=["user_id", "metric_type", "recorded_at"]).execute()
+            response = (
+                self.client.table("health_metrics")
+                .upsert(metrics, on_conflict=["user_id", "metric_type", "recorded_at"])
+                .execute()
+            )
             return response.data or []
         except Exception as e:
             logger.error(f"Failed to insert health metrics: {e}")
             raise
+
+    # ========================================================================
+    # RAW SQL EXECUTION (For migrations)
+    # ========================================================================
+
+    async def execute_sql(self, sql: str) -> Dict[str, Any]:
+        """
+        Execute raw SQL (admin only).
+
+        WARNING: Use with caution. Only for migrations.
+
+        Args:
+            sql: SQL statement
+
+        Returns:
+            Result dict
+        """
+        try:
+            # Note: Supabase Python client doesn't support raw SQL execution
+            # Migrations should be applied via Supabase dashboard or CLI
+            raise NotImplementedError(
+                "Raw SQL execution not supported via Supabase client. "
+                "Use Supabase dashboard SQL Editor or CLI for migrations."
+            )
+        except Exception as e:
+            logger.error(f"Failed to execute SQL: {e}")
+            raise
+
+
+# Global singleton instance
+supabase_service = SupabaseService()
+
+
+def get_service_client() -> Client:
+    """
+    Get the raw Supabase client for services that need direct access.
+
+    Returns:
+        Supabase Client instance
+    """
+    return supabase_service.client
