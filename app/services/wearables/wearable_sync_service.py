@@ -57,17 +57,41 @@ class WearableSyncService:
             "updated_at": self._now().isoformat(),
         }
 
-        # Upsert wearable_accounts by (user_id, provider)
+        # Manual upsert to avoid SDK on_conflict quirks: UPDATE then INSERT if no rows affected
         try:
-            resp = (
+            # Attempt update first
+            update_fields = {
+                "status": data["status"],
+                "credentials_encrypted": data.get("credentials_encrypted"),
+                "updated_at": data["updated_at"],
+            }
+            upd = (
                 self.db
                 .table("wearable_accounts")
-                .upsert([data], on_conflict=["user_id", "provider"])  # pass list for stability
+                .update(update_fields)
+                .eq("user_id", str(user_id))
+                .eq("provider", data["provider"])
                 .execute()
             )
-            return resp.data[0] if resp.data else data
+
+            if upd.data and len(upd.data) > 0:
+                return upd.data[0]
+
+            # No row updated, insert new
+            ins = (
+                self.db
+                .table("wearable_accounts")
+                .insert(data)
+                .execute()
+            )
+            return ins.data[0] if ins.data else data
         except Exception as e:
-            logger.error("wearable_account_upsert_failed", error=str(e), provider=data["provider"], user_id=str(user_id))
+            logger.error(
+                "wearable_account_upsert_failed",
+                error=str(e),
+                provider=data["provider"],
+                user_id=str(user_id),
+            )
             raise
 
     async def start_sync(self, user_id: UUID, provider: str, days: int = 7) -> Dict[str, Any]:
