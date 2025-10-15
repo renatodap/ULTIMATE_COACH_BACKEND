@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 
 from app.api.dependencies import get_current_user
 from app.services.wearables.wearable_sync_service import wearable_sync_service
-from workers.coach_tasks import wearables_start_sync
+from app.core.celery_app import celery_app
 
 logger = structlog.get_logger()
 
@@ -61,13 +61,12 @@ async def trigger_wearable_sync(
     current_user: dict = Depends(get_current_user),
 ):
     try:
-        # Enqueue background job
-        async def _enqueue() -> Dict[str, Any]:
-            return wearables_start_sync.delay(current_user["id"], provider, days).id  # type: ignore
-
-        # Celery returns task id
-        task_id = wearables_start_sync.delay(current_user["id"], provider, days).id  # type: ignore
-        return {"enqueued": True, "task_id": task_id}
+        # Enqueue background job by task name to avoid importing worker module in API process
+        result = celery_app.send_task(
+            "wearables.start_sync",
+            args=[current_user["id"], provider, days],
+        )
+        return {"enqueued": True, "task_id": result.id}
     except Exception as e:
         logger.error("trigger_sync_failed", error=str(e))
         raise HTTPException(status_code=500, detail="Failed to trigger sync")
