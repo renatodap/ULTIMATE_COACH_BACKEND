@@ -58,6 +58,10 @@ class Settings(BaseSettings):
     # Frontend base URL (for auth email redirects)
     FRONTEND_URL: str | None = None
 
+    # Wearables
+    WEARABLE_CRED_SECRET: str | None = None  # Symmetric key for encrypting wearable credentials (Fernet base64 key)
+    GARMIN_ENABLED: bool = False
+
     @property
     def cors_origins_list(self) -> List[str]:
         """Parse CORS_ORIGINS comma-separated string into list."""
