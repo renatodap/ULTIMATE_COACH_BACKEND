@@ -192,7 +192,7 @@ async def refresh_token(request: RefreshTokenRequest) -> JSONResponse:
     summary="Log out a user",
     description="Revoke user session",
 )
-async def logout() -> JSONResponse:
+async def logout(response: Response) -> JSONResponse:
     """
     Log out the current user.
 
@@ -201,6 +201,19 @@ async def logout() -> JSONResponse:
     """
     try:
         await auth_service.logout("")
+
+        # Clear httpOnly cookies on client
+        try:
+            response.delete_cookie(
+                key="access_token",
+                path="/",
+            )
+            response.delete_cookie(
+                key="refresh_token",
+                path="/",
+            )
+        except Exception as e:
+            logger.warning("cookie_clear_failed", error=str(e))
 
         logger.info("user_logout_success")
 
