@@ -196,6 +196,40 @@ class Meal(BaseModel):
     notes: Optional[str] = Field(None, description="Meal notes")
 
 
+# ============================================================================
+# MULTIMODAL TRAINING (ENDURANCE/HIIT/SPORT)
+# ============================================================================
+
+class MultimodalInterval(BaseModel):
+    """Interval step for endurance/HIIT sessions."""
+
+    work_minutes: float = Field(..., gt=0, description="Work interval length (minutes)")
+    rest_minutes: Optional[float] = Field(None, ge=0, description="Rest interval length (minutes)")
+    target: Optional[str] = Field(None, description="Target pace/HR/RPE for the work segment")
+
+
+class MultimodalDrill(BaseModel):
+    """Skill drill for sport sessions (e.g., tennis)."""
+
+    name: str = Field(..., description="Drill name")
+    duration_minutes: int = Field(..., ge=5, le=180, description="Estimated duration")
+    focus: Optional[str] = Field(None, description="Skill focus (serve, footwork, rally)")
+
+
+class MultimodalSession(BaseModel):
+    """Generic non-resistance session: endurance, HIIT, sport."""
+
+    session_id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="Session UUID")
+    session_kind: str = Field(..., description="endurance | hiit | sport")
+    modality: str = Field(..., description="running | cycling | tennis | rowing | swimming | other")
+    day_of_week: Optional[str] = Field(None, description="monday..sunday (optional)")
+    duration_minutes: int = Field(..., ge=10, le=300, description="Planned session length")
+    intensity_target: Optional[str] = Field(None, description="pace/HR zone/RPE")
+    intervals: Optional[List[MultimodalInterval]] = Field(None, description="Interval structure, if any")
+    drills: Optional[List[MultimodalDrill]] = Field(None, description="Sport drills, if any")
+    notes: Optional[str] = Field(None, description="Session notes")
+
+
 class DailyMealPlan(BaseModel):
     """Meals for one day."""
     
@@ -433,6 +467,10 @@ class ProgramBundle(BaseModel):
     training_plan: TrainingPlan = Field(..., description="Complete training program")
     nutrition_plan: NutritionPlan = Field(..., description="Complete nutrition program")
     grocery_list: Optional[GroceryList] = Field(None, description="Shopping list")
+    multimodal_sessions_weekly: Optional[List[MultimodalSession]] = Field(
+        default=None,
+        description="Optional weekly schedule of endurance/HIIT/sport sessions"
+    )
     
     # Validation results
     tdee_result: TDEEResult = Field(..., description="Energy expenditure calculation")

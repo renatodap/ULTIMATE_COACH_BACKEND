@@ -74,6 +74,26 @@ class ImprovementGoalInput(BaseModel):
     timeline_weeks: Optional[int] = Field(None, ge=1, description="Desired timeline")
 
 
+class FacilityAccessInput(BaseModel):
+    """Facilities the user can access for training (courts, tracks, bikes)."""
+
+    facility_type: str = Field(..., description="court, track, pool, bike, rower, trainer, field")
+    days_available: List[str] = Field(default_factory=list, description="monday..sunday available days")
+    notes: Optional[str] = Field(None, description="Additional context about access")
+
+
+class ModalityPreferenceInput(BaseModel):
+    """User preference for additional modalities beyond resistance training."""
+
+    modality: str = Field(..., description="running, cycling, tennis, hiit, rowing, swimming, mobility")
+    priority: int = Field(default=5, ge=1, le=10, description="Importance (1-10)")
+    target_sessions_per_week: Optional[int] = Field(None, ge=0, le=14, description="Desired weekly frequency")
+    min_duration_minutes: Optional[int] = Field(None, ge=10, le=240, description="Minimum session length")
+    max_duration_minutes: Optional[int] = Field(None, ge=10, le=300, description="Maximum session length")
+    facility_needed: Optional[str] = Field(None, description="court, bike, pool, track, none")
+    intensity_preference: Optional[str] = Field(None, description="low, moderate, high")
+
+
 class DifficultyInput(BaseModel):
     """Challenges or barriers."""
     
@@ -145,6 +165,16 @@ class ConsultationTranscript(BaseModel):
     typical_foods: List[TypicalMealFoodInput] = Field(
         default_factory=list,
         description="Foods user typically eats"
+    )
+
+    # Facilities and additional modalities
+    facility_access: List[FacilityAccessInput] = Field(
+        default_factory=list,
+        description="Facilities the user can access (courts, tracks, bikes)"
+    )
+    modality_preferences: List[ModalityPreferenceInput] = Field(
+        default_factory=list,
+        description="Preferences for running/cycling/tennis/HIIT/etc."
     )
     
     # Goals and context
