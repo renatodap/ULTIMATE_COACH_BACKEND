@@ -140,7 +140,7 @@ class SupabaseService:
             raise
 
     async def update_profile(
-        self, user_id: UUID, updates: Dict[str, Any]
+        self, user_id: UUID, updates: Dict[str, Any], user_token: Optional[str] = None
     ) -> Optional[Dict[str, Any]]:
         """
         Update or create a user profile (manual upsert: UPDATE, then INSERT if no row).
@@ -155,13 +155,18 @@ class SupabaseService:
         try:
             # Try update first
             logger.info(f"Updating profile for user {user_id}")
+            if user_token:
+                # Perform this operation under the user's RLS context
+                self.client.postgrest.auth(user_token)
             response = (
                 self.client.table("profiles")
                 .update(updates)
                 .eq("id", str(user_id))
                 .execute()
             )
-
+            if user_token:
+                # Clear auth so future calls use service role again
+                self.client.postgrest.auth(None)
             if response.data and len(response.data) > 0:
                 logger.info(f"Successfully updated profile for user {user_id}")
                 return response.data[0]
@@ -169,7 +174,11 @@ class SupabaseService:
             # No existing profile, insert new
             data = {"id": str(user_id), **updates}
             logger.warning(f"Profile not found for user {user_id}, creating new profile")
+            if user_token:
+                self.client.postgrest.auth(user_token)
             created = self.client.table("profiles").insert(data).execute()
+            if user_token:
+                self.client.postgrest.auth(None)
             if created.data and len(created.data) > 0:
                 logger.info(f"Successfully created profile for user {user_id}")
                 return created.data[0]
@@ -191,6 +200,26 @@ class SupabaseService:
                 },
                 exc_info=True,
             )
+            raise
+
+    async def create_body_metric(self, metric_data: Dict[str, Any], user_token: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Create a new body metric entry under user's RLS context when provided.
+
+        Args:
+            metric_data: Body metric fields
+            user_token: Optional JWT to satisfy RLS policies
+        """
+        try:
+            if user_token:
+                self.client.postgrest.auth(user_token)
+            response = self.client.table("body_metrics").insert(metric_data).execute()
+            if user_token:
+                self.client.postgrest.auth(None)
+            logger.info(f"Created body metric for user {metric_data.get('user_id')}")
+            return response.data[0]
+        except Exception as e:
+            logger.error(f"Failed to create body metric: {e}")
             raise
 
     # ========================================================================

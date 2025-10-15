@@ -277,8 +277,14 @@ async def complete_onboarding(
             'macros_calculation_reason': 'initial_onboarding',
         }
 
-        # Step 3: Update profile
-        updated_profile = await supabase_service.update_profile(user_id, profile_update)
+        # Extract user JWT for RLS-protected writes
+        auth_header = request.headers.get('authorization') or request.headers.get('Authorization')
+        user_jwt = None
+        if auth_header and auth_header.lower().startswith('bearer '):
+            user_jwt = auth_header.split(' ', 1)[1]
+
+        # Step 3: Update profile (RLS context)
+        updated_profile = await supabase_service.update_profile(user_id, profile_update, user_token=user_jwt)
 
         log_event(
             "onboarding_profile_updated",
@@ -295,7 +301,7 @@ async def complete_onboarding(
                 'weight_kg': data.current_weight_kg,
                 'height_cm': data.height_cm,
                 'notes': 'Initial metrics from onboarding'
-            })
+            }, user_token=user_jwt)
             log_event(
                 "onboarding_body_metrics_seeded",
                 user_id=str(user_id),
