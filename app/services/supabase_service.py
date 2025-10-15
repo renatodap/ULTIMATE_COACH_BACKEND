@@ -143,83 +143,53 @@ class SupabaseService:
         self, user_id: UUID, updates: Dict[str, Any]
     ) -> Optional[Dict[str, Any]]:
         """
-        Update user profile using UPSERT logic.
-
-        Creates the profile if it doesn't exist, updates if it does.
-        This prevents failures when profile is missing.
+        Update or create a user profile (manual upsert: UPDATE, then INSERT if no row).
 
         Args:
             user_id: User UUID
             updates: Fields to update
 
         Returns:
-            Updated profile dict or None
+            Updated/created profile dict or None
         """
         try:
-            # First, try to check if profile exists
-            existing = await self.get_profile(user_id)
+            # Try update first
+            logger.info(f"Updating profile for user {user_id}")
+            response = (
+                self.client.table("profiles")
+                .update(updates)
+                .eq("id", str(user_id))
+                .execute()
+            )
 
-            if existing:
-                # Profile exists, do update
-                logger.info(f"Updating existing profile for user {user_id}")
-                response = (
-                    self.client.table("profiles")
-                    .update(updates)
-                    .eq("id", str(user_id))
-                    .execute()
-                )
-
-                if not response.data or len(response.data) == 0:
-                    logger.error(
-                        f"Profile update returned empty data for user {user_id}",
-                        extra={
-                            "user_id": str(user_id),
-                            "updates_keys": list(updates.keys()),
-                            "response": str(response)
-                        }
-                    )
-                    raise RuntimeError(f"Failed to update profile - no data returned")
-
+            if response.data and len(response.data) > 0:
                 logger.info(f"Successfully updated profile for user {user_id}")
                 return response.data[0]
-            else:
-                # Profile doesn't exist, create it
-                logger.warning(
-                    f"Profile not found for user {user_id}, creating new profile",
-                    extra={
-                        "user_id": str(user_id),
-                        "updates_keys": list(updates.keys())
-                    }
-                )
-                data = {"id": str(user_id), **updates}
-                response = self.client.table("profiles").insert(data).execute()
 
-                if not response.data or len(response.data) == 0:
-                    logger.error(
-                        f"Profile creation returned empty data for user {user_id}",
-                        extra={
-                            "user_id": str(user_id),
-                            "response": str(response)
-                        }
-                    )
-                    raise RuntimeError(f"Failed to create profile - no data returned")
-
+            # No existing profile, insert new
+            data = {"id": str(user_id), **updates}
+            logger.warning(f"Profile not found for user {user_id}, creating new profile")
+            created = self.client.table("profiles").insert(data).execute()
+            if created.data and len(created.data) > 0:
                 logger.info(f"Successfully created profile for user {user_id}")
-                return response.data[0]
+                return created.data[0]
 
-        except RuntimeError:
-            # Re-raise RuntimeError as-is
-            raise
+            logger.error(
+                f"Profile upsert returned empty data for user {user_id}",
+                extra={"user_id": str(user_id), "updates_keys": list(updates.keys())}
+            )
+            raise RuntimeError("Failed to upsert profile - no data returned")
+
         except Exception as e:
             logger.error(
-                f"Failed to update/create profile for user {user_id}",
+                f"Failed to upsert profile for user {user_id}",
                 extra={
                     "user_id": str(user_id),
                     "error_type": type(e).__name__,
                     "error_message": str(e),
-                    "updates_keys": list(updates.keys())
+                    "updates_keys": list(updates.keys()),
                 },
-                exc_info=True
+                exc_info=True,
             )
             raise
 
