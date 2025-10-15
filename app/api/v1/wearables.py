@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 from app.api.dependencies import get_current_user
 from app.services.wearables.wearable_sync_service import wearable_sync_service
 from app.core.celery_app import celery_app
+from app.config import settings
 
 logger = structlog.get_logger()
 
@@ -84,3 +85,26 @@ async def get_wearable_status(current_user: dict = Depends(get_current_user)):
     except Exception as e:
         logger.error("get_status_failed", error=str(e))
         raise HTTPException(status_code=500, detail="Failed to get status")
+
+
+@router.post(
+    "/wearables/{provider}/sync-inline",
+    status_code=status.HTTP_200_OK,
+    summary="Trigger wearable sync inline (dev)",
+    description="Runs sync synchronously for development/testing without Celery",
+)
+async def trigger_wearable_sync_inline(
+    provider: str,
+    days: int = Query(7, ge=1, le=365, description="Days to backfill"),
+    current_user: dict = Depends(get_current_user),
+):
+    # Restrict to development or explicit flag
+    if not (settings.is_development or settings.WEARABLES_INLINE_SYNC_ENABLED):
+        raise HTTPException(status_code=403, detail="Inline sync disabled")
+
+    try:
+        result = await wearable_sync_service.start_sync(UUID(current_user["id"]), provider, days=days)
+        return {"job": result, "mode": "inline"}
+    except Exception as e:
+        logger.error("trigger_sync_inline_failed", error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to run sync inline")

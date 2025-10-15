@@ -19,7 +19,16 @@ from datetime import datetime
 import logging
 
 from api.schemas.inputs import ConsultationTranscript, GenerationOptions
-from api.schemas.outputs import ProgramBundle, TrainingPlan, NutritionPlan, SafetyReport, FeasibilityReport
+from api.schemas.outputs import (
+    ProgramBundle,
+    TrainingPlan,
+    NutritionPlan,
+    SafetyReport,
+    FeasibilityReport,
+    MultimodalSession,
+    MultimodalInterval,
+    MultimodalDrill,
+)
 from api.schemas.meta import ProgramVersion, Provenance
 from api.adapters import consultation_to_user_profile, validate_consultation_data, ConsultationValidationError
 from services.program_generator import PlanGenerator
@@ -204,6 +213,44 @@ def _transform_to_program_bundle(
         warnings=warnings,
     )
     
+    # Build multimodal sessions (optional)
+    multimodal_sessions_out = None
+    if complete_plan.multimodal_sessions_weekly:
+        multimodal_sessions_out = []
+        for s in complete_plan.multimodal_sessions_weekly:
+            intervals = None
+            drills = None
+            if s.intervals:
+                intervals = [
+                    MultimodalInterval(
+                        work_minutes=iv.work_minutes,
+                        rest_minutes=iv.rest_minutes,
+                        target=iv.target,
+                    )
+                    for iv in s.intervals
+                ]
+            if s.drills:
+                drills = [
+                    MultimodalDrill(
+                        name=d.name,
+                        duration_minutes=d.duration_minutes,
+                        focus=d.focus,
+                    )
+                    for d in s.drills
+                ]
+            multimodal_sessions_out.append(
+                MultimodalSession(
+                    session_kind=s.session_kind.value if hasattr(s.session_kind, "value") else str(s.session_kind),
+                    modality=s.modality,
+                    day_of_week=s.day_of_week,
+                    duration_minutes=s.duration_minutes,
+                    intensity_target=s.intensity_target,
+                    intervals=intervals,
+                    drills=drills,
+                    notes=s.notes,
+                )
+            )
+
     # Build complete program bundle
     program_bundle = ProgramBundle(
         program_id=complete_plan.plan_id,
@@ -229,6 +276,7 @@ def _transform_to_program_bundle(
         feasibility_report=feasibility_report,
         program_notes=complete_plan.notes,
         coach_instructions=None,  # TODO: Generate coach-specific instructions
+        multimodal_sessions_weekly=multimodal_sessions_out,
     )
     
     return program_bundle

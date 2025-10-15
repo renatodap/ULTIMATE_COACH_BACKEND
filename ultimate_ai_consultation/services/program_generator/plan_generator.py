@@ -34,6 +34,12 @@ from .meal_assembler import (
     MacroTargets as MealMacroTargets,
     DietaryPreference,
 )
+from .modality_planner import (
+    ModalityPlanner,
+    ModalityPreference as PlannerModalityPreference,
+    FacilityAccess as PlannerFacilityAccess,
+    MultimodalSessionInternal,
+)
 
 
 @dataclass
@@ -74,6 +80,10 @@ class UserProfile:
     injuries: Optional[List[str]] = None
     doctor_clearance: bool = False
 
+    # Multimodal preferences (optional)
+    modality_preferences: Optional[List[PlannerModalityPreference]] = None
+    facility_access: Optional[List[PlannerFacilityAccess]] = None
+
     def __post_init__(self):
         if self.available_days is None:
             self.available_days = ["monday", "tuesday", "wednesday", "thursday", "friday"]
@@ -111,6 +121,7 @@ class CompletePlan:
     training_sessions_per_week: int = 4
     notes: str = ""
     next_reassessment_date: Optional[datetime] = None
+    multimodal_sessions_weekly: Optional[List[MultimodalSessionInternal]] = None
 
 
 class PlanGenerator:
@@ -123,6 +134,7 @@ class PlanGenerator:
         self.constraint_solver = ConstraintSolver()
         self.training_generator = TrainingGenerator()
         self.meal_assembler = MealAssembler()
+        self.modality_planner = ModalityPlanner()
 
     def generate_complete_plan(
         self, profile: UserProfile, plan_version: int = 1
@@ -171,7 +183,7 @@ class PlanGenerator:
         feasibility_result = self._check_feasibility(
             profile=profile,
             target_calories=target_calories,
-            tdee_mean=tdee_result.tdee_mean,
+            tdee_result=tdee_result,
         )
 
         if feasibility_result.status == FeasibilityStatus.INFEASIBLE:
@@ -193,6 +205,25 @@ class PlanGenerator:
             profile=profile, macro_targets=macro_targets
         )
 
+        # Step 7b: Generate weekly multimodal sessions (optional)
+        multimodal_sessions = None
+        if profile.modality_preferences:
+            multimodal_sessions = self.modality_planner.plan_week(
+                preferences=profile.modality_preferences,
+                available_days=profile.available_days or [
+                    "monday",
+                    "tuesday",
+                    "wednesday",
+                    "thursday",
+                    "friday",
+                    "saturday",
+                    "sunday",
+                ],
+                resistance_sessions_per_week=profile.sessions_per_week,
+                facility_access=profile.facility_access,
+                age=profile.age,
+            )
+
         # Step 8: Create complete plan
         plan = CompletePlan(
             plan_id=f"plan_{profile.user_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
@@ -212,6 +243,7 @@ class PlanGenerator:
             safety_result=safety_result,
             notes=self._generate_plan_notes(profile, safety_result, feasibility_result),
             next_reassessment_date=datetime.now() + timedelta(days=14),
+            multimodal_sessions_weekly=multimodal_sessions,
         )
 
         return plan, warnings
@@ -220,23 +252,28 @@ class PlanGenerator:
         """Run safety validation"""
         return self.safety_validator.validate(
             age=profile.age,
-            medical_conditions=profile.medical_conditions,
-            medications=profile.medications,
-            injuries=profile.injuries,
-            bmi=profile.weight_kg / ((profile.height_cm / 100) ** 2),
-            is_pregnant=False,  # Would come from consultation
+            sex_at_birth=profile.sex_at_birth,
+            weight_kg=profile.weight_kg,
+            height_cm=profile.height_cm,
+            medical_conditions=profile.medical_conditions or [],
+            medications=profile.medications or [],
+            recent_surgeries=None,
+            pregnancy_status=None,
             doctor_clearance=profile.doctor_clearance,
+            goal=profile.primary_goal.value,
+            target_calorie_deficit_pct=None,
+            training_intensity=None,
         )
 
     def _calculate_tdee(self, profile: UserProfile) -> TDEEResult:
         """Calculate TDEE with ensemble method"""
-        return self.tdee_calculator.calculate_ensemble(
+        return self.tdee_calculator.calculate(
             age=profile.age,
             sex_at_birth=profile.sex_at_birth,
             weight_kg=profile.weight_kg,
             height_cm=profile.height_cm,
-            activity_factor=profile.activity_factor,
-            body_fat_percentage=profile.body_fat_percentage,
+            activity_level=profile.activity_factor,
+            body_fat_percent=profile.body_fat_percentage,
         )
 
     def _calculate_calorie_target(
@@ -299,33 +336,66 @@ class PlanGenerator:
         training_sessions_per_week: int,
     ) -> CalcMacroTargets:
         """Calculate macro targets"""
-        return self.macro_calculator.calculate_macros(
-            calories=calories,
-            weight_kg=weight_kg,
+        return self.macro_calculator.calculate(
+            tdee=calories,
             goal=goal,
-            training_frequency=training_sessions_per_week,
+            weight_kg=weight_kg,
+            body_fat_percent=None,
+            training_sessions_per_week=training_sessions_per_week,
         )
 
     def _check_feasibility(
-        self, profile: UserProfile, target_calories: int, tdee_mean: float
+        self, profile: UserProfile, target_calories: int, tdee_result: TDEEResult
     ) -> SolverResult:
-        """Validate plan feasibility with constraint solver"""
-        # Calculate safe calorie bounds
-        min_safe_calories = 1500 if profile.sex_at_birth.lower() == "male" else 1200
-        max_safe_calories = int(tdee_mean * 1.2)  # Max 20% surplus
+        """Validate plan feasibility with constraint solver (CP-SAT)."""
+        # Safe calorie bounds
+        min_safe_calories = 1200 if profile.sex_at_birth.lower() == "female" else 1500
+        max_safe_calories = int(tdee_result.tdee_ci_upper * 1.2)
 
+        # Map available days (strings) to indices 1..7 (Mon..Sun)
+        day_map = {
+            "monday": 1,
+            "tuesday": 2,
+            "wednesday": 3,
+            "thursday": 4,
+            "friday": 5,
+            "saturday": 6,
+            "sunday": 7,
+        }
+        available_days_idx = [day_map.get(d.lower(), 1) for d in (profile.available_days or ["monday", "wednesday", "friday"])]
+
+        # Experience to years
+        exp_years = {
+            ExperienceLevel.BEGINNER: 0.5,
+            ExperienceLevel.INTERMEDIATE: 2.0,
+            ExperienceLevel.ADVANCED: 4.0,
+        }.get(profile.experience_level, 1.0)
+
+        # Call solver with comprehensive arguments and sensible defaults
         return self.constraint_solver.solve(
+            age=profile.age,
+            sex_at_birth=profile.sex_at_birth,
+            weight_kg=profile.weight_kg,
+            height_cm=profile.height_cm,
+            body_fat_percent=profile.body_fat_percentage,
             primary_goal=profile.primary_goal,
+            target_weight_kg=profile.target_weight_kg,
+            target_weight_change_kg_per_week=None,  # derived implicitly by calorie range
+            timeline_weeks=profile.timeline_weeks,
             sessions_per_week_min=profile.sessions_per_week,
             sessions_per_week_max=profile.sessions_per_week,
-            available_days=profile.available_days,
-            calorie_target=target_calories,
-            calorie_min=min_safe_calories,
-            calorie_max=max_safe_calories,
-            tdee=tdee_mean,
-            weight_kg=profile.weight_kg,
-            age=profile.age,
-            medical_restrictions=profile.medical_conditions,
+            session_duration_min_minutes=45,
+            session_duration_max_minutes=120,
+            available_equipment=["full_gym"],
+            training_experience_years=exp_years,
+            tdee_result=tdee_result,
+            dietary_restrictions=profile.food_allergies or [],
+            budget_per_week=None,
+            available_days=available_days_idx,
+            preferred_training_times=["evening"],
+            prefer_higher_frequency=True,
+            prefer_shorter_sessions=False,
+            complexity_tolerance="moderate",
         )
 
     def _generate_training_program(self, profile: UserProfile) -> TrainingProgram:

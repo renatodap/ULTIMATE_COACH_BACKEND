@@ -29,6 +29,10 @@ from libs.calculators.macros import Goal
 from libs.calculators.tdee import ActivityFactor
 from services.program_generator.training_generator import ExperienceLevel, IntensityZone
 from services.program_generator.meal_assembler import DietaryPreference
+from services.program_generator.modality_planner import (
+    ModalityPreference as PlannerModalityPreference,
+    FacilityAccess as PlannerFacilityAccess,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -156,6 +160,28 @@ class ConsultationAdapter:
             medical_conditions,
             medications
         )
+
+        # Step 13: Map optional modality preferences and facilities
+        facility_access_list = [
+            PlannerFacilityAccess(
+                facility_type=f.facility_type,
+                days_available=f.days_available,
+                notes=f.notes,
+            )
+            for f in (consultation.facility_access or [])
+        ]
+        modality_prefs_list = [
+            PlannerModalityPreference(
+                modality=m.modality,
+                priority=m.priority,
+                target_sessions_per_week=m.target_sessions_per_week,
+                min_duration_minutes=m.min_duration_minutes,
+                max_duration_minutes=m.max_duration_minutes,
+                facility_needed=m.facility_needed,
+                intensity_preference=m.intensity_preference,
+            )
+            for m in (consultation.modality_preferences or [])
+        ]
         
         # Build UserProfile
         profile = UserProfile(
@@ -190,6 +216,9 @@ class ConsultationAdapter:
             medications=medications,
             injuries=injuries,
             doctor_clearance=doctor_clearance,
+            # Multimodal
+            modality_preferences=modality_prefs_list or None,
+            facility_access=facility_access_list or None,
         )
         
         logger.info(

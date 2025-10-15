@@ -61,6 +61,7 @@ class Settings(BaseSettings):
     # Wearables
     WEARABLE_CRED_SECRET: str | None = None  # Symmetric key for encrypting wearable credentials (Fernet base64 key)
     GARMIN_ENABLED: bool = False
+    WEARABLES_INLINE_SYNC_ENABLED: bool = False  # Allow sync-inline endpoint (dev/testing)
 
     @property
     def cors_origins_list(self) -> List[str]:
