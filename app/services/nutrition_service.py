@@ -92,25 +92,43 @@ class NutritionService:
                     }
                 ).execute()
 
+                # Handle different RPC response formats
+                # Supabase can return: {"foods": [...]} or [{"foods": [...]}]
+                response_data = rpc_response.data
+
+                # If response is a list, unwrap first element
+                if isinstance(response_data, list) and len(response_data) > 0:
+                    response_data = response_data[0]
+
+                logger.info(
+                    "search_foods_rpc_response",
+                    query=query,
+                    response_type=type(response_data).__name__,
+                    is_dict=isinstance(response_data, dict),
+                    has_foods_key="foods" in response_data if isinstance(response_data, dict) else False,
+                    method="rpc_search_foods_safe"
+                )
+
                 # Check if RPC returned an error
-                if rpc_response.data and isinstance(rpc_response.data, dict):
-                    if "error" in rpc_response.data:
+                if response_data and isinstance(response_data, dict):
+                    if "error" in response_data:
                         logger.warning(
                             "search_foods_rpc_error",
                             query=query,
-                            error=rpc_response.data.get("error"),
+                            error=response_data.get("error"),
                             fallback="using_table_query"
                         )
                         # Fall through to fallback method
-                        raise Exception(f"RPC error: {rpc_response.data.get('error')}")
+                        raise Exception(f"RPC error: {response_data.get('error')}")
 
                     # Success! Parse RPC response
-                    foods_data = rpc_response.data.get("foods", [])
+                    foods_data = response_data.get("foods", [])
 
                     logger.info(
                         "search_foods_rpc_success",
                         query=query,
                         results_count=len(foods_data),
+                        servings_sample=len(foods_data[0].get("servings", [])) if foods_data else 0,
                         method="rpc_search_foods_safe"
                     )
 
@@ -121,6 +139,13 @@ class NutritionService:
                         food = Food(**food_dict)
                         food.servings = [FoodServing(**s) for s in servings_data]
                         foods.append(food)
+
+                    logger.info(
+                        "search_foods_rpc_parsed",
+                        query=query,
+                        foods_count=len(foods),
+                        first_food_servings=len(foods[0].servings) if foods else 0
+                    )
 
                     return foods[:limit]
 
