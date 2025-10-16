@@ -83,25 +83,38 @@ class NutritionService:
             except Exception as nested_error:
                 # Fallback: PostgREST "JSON could not be generated" error (code 5)
                 # This happens when there's corrupted JSONB data in foods table
-                # Fetch foods and servings separately
                 logger.warning(
                     "search_foods_nested_query_failed",
                     query=query,
                     error=str(nested_error),
-                    fallback="fetching_foods_only"
+                    fallback="fetching_foods_without_jsonb"
                 )
 
-                public_query = (
-                    supabase_service.client.table("foods")
-                    .select("*")  # No nested servings
-                    .eq("is_public", True)
-                    .ilike("name", f"%{query}%")
-                    .order("usage_count", desc=True)
-                    .order("verified", desc=True)
-                    .limit(limit)
-                )
+                # Even more aggressive fallback - exclude JSONB columns that might be corrupted
+                # Only select non-JSONB columns to avoid serialization errors
+                try:
+                    public_query = (
+                        supabase_service.client.table("foods")
+                        .select("id, name, brand_name, food_type, composition_type, "
+                               "calories_per_100g, protein_g_per_100g, carbs_g_per_100g, "
+                               "fat_g_per_100g, fiber_g_per_100g, "
+                               "is_public, verified, usage_count, created_by, created_at, updated_at")
+                        .eq("is_public", True)
+                        .ilike("name", f"%{query}%")
+                        .order("usage_count", desc=True)
+                        .order("verified", desc=True)
+                        .limit(limit)
+                    )
 
-                public_response = public_query.execute()
+                    public_response = public_query.execute()
+                except Exception as final_error:
+                    # If even this fails, return empty list
+                    logger.error(
+                        "search_foods_all_fallbacks_failed",
+                        query=query,
+                        error=str(final_error)
+                    )
+                    return []
 
             foods = []
 
@@ -146,18 +159,31 @@ class NutritionService:
                         query=query,
                         user_id=str(user_id),
                         error=str(nested_error),
-                        fallback="fetching_foods_only"
+                        fallback="fetching_foods_without_jsonb"
                     )
 
-                    custom_query = (
-                        supabase_service.client.table("foods")
-                        .select("*")  # No nested servings
-                        .eq("created_by", str(user_id))
-                        .ilike("name", f"%{query}%")
-                        .limit(limit)
-                    )
+                    try:
+                        custom_query = (
+                            supabase_service.client.table("foods")
+                            .select("id, name, brand_name, food_type, composition_type, "
+                                   "calories_per_100g, protein_g_per_100g, carbs_g_per_100g, "
+                                   "fat_g_per_100g, fiber_g_per_100g, "
+                                   "is_public, verified, usage_count, created_by, created_at, updated_at")
+                            .eq("created_by", str(user_id))
+                            .ilike("name", f"%{query}%")
+                            .limit(limit)
+                        )
 
-                    custom_response = custom_query.execute()
+                        custom_response = custom_query.execute()
+                    except Exception as final_error:
+                        # If even this fails, skip custom foods
+                        logger.error(
+                            "search_custom_foods_all_fallbacks_failed",
+                            query=query,
+                            user_id=str(user_id),
+                            error=str(final_error)
+                        )
+                        custom_response = type('obj', (object,), {'data': []})()  # Empty response
 
                 for row in custom_response.data:
                     servings_data = row.pop("food_servings", [])
