@@ -69,6 +69,15 @@ class NutritionService:
         try:
             # Search public foods
             try:
+                # Enhanced logging for diagnostics
+                logger.info(
+                    "search_foods_query_starting",
+                    query=query,
+                    limit=limit,
+                    user_id=str(user_id) if user_id else None,
+                    has_user_id=user_id is not None
+                )
+
                 public_query = (
                     supabase_service.client.table("foods")
                     .select("*, food_servings(*)")
@@ -80,6 +89,21 @@ class NutritionService:
                 )
 
                 public_response = public_query.execute()
+
+                # Enhanced logging for diagnostics
+                logger.info(
+                    "search_foods_query_completed",
+                    query=query,
+                    results_count=len(public_response.data),
+                    has_servings=any(row.get("food_servings") for row in public_response.data) if public_response.data else False,
+                    sample_results=[{
+                        "id": row.get("id"),
+                        "name": row.get("name"),
+                        "is_public": row.get("is_public"),
+                        "verified": row.get("verified"),
+                        "servings_count": len(row.get("food_servings", []))
+                    } for row in public_response.data[:3]] if public_response.data else []
+                )
             except Exception as nested_error:
                 # Fallback: PostgREST "JSON could not be generated" error (code 5)
                 # This happens when there's corrupted JSONB data in foods table
