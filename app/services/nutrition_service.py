@@ -573,8 +573,11 @@ class NutritionService:
         Create a meal with items.
 
         Supports two logging methods:
-        - GRAM-BASED: serving_id = None, uses item.grams + pre-calculated nutrition
-        - SERVING-BASED: serving_id provided, validates serving and calculates nutrition
+        - GRAM-BASED: serving_id = None, quantity = grams (e.g., 100 = 100g)
+        - SERVING-BASED: serving_id = UUID, quantity = serving count (e.g., 2 = 2 scoops)
+
+        Backend ALWAYS recalculates grams and nutrition from quantity + serving/food.
+        Does not trust frontend's pre-calculated values (single source of truth).
 
         PERFORMANCE: Batches all food fetches in a single query (fixes N+1 issue).
 
@@ -631,20 +634,15 @@ class NutritionService:
                 if not food:
                     raise FoodNotFoundError(str(item.food_id))
 
-                # Check if gram-based logging (serving_id is None) or serving-based
+                # Determine if gram-based or serving-based logging
                 if item.serving_id is None:
-                    # GRAM-BASED LOGGING: Use item.grams directly
-                    # Frontend sends pre-calculated nutrition values
-                    grams = item.grams
-                    serving = None  # No serving needed
-
-                    # Use nutrition values from frontend (already calculated)
-                    item_calories = item.calories
-                    item_protein = item.protein_g
-                    item_carbs = item.carbs_g
-                    item_fat = item.fat_g
+                    # GRAM-BASED LOGGING
+                    # quantity represents grams directly (e.g., 100 = 100g)
+                    grams = item.quantity
+                    serving = None
                 else:
-                    # SERVING-BASED LOGGING: Find and validate serving
+                    # SERVING-BASED LOGGING
+                    # quantity represents serving count (e.g., 2 = 2 servings)
                     serving = next(
                         (s for s in food.servings if s.id == item.serving_id), None
                     )
@@ -659,14 +657,16 @@ class NutritionService:
                             str(serving.food_id),
                         )
 
-                    # Calculate nutrition from serving
+                    # Calculate grams from serving count
                     grams = item.quantity * serving.grams_per_serving
-                    multiplier = grams / Decimal("100")
 
-                    item_calories = food.calories_per_100g * multiplier
-                    item_protein = food.protein_g_per_100g * multiplier
-                    item_carbs = food.carbs_g_per_100g * multiplier
-                    item_fat = food.fat_g_per_100g * multiplier
+                # ALWAYS calculate nutrition from grams (single source of truth)
+                # Don't trust frontend's pre-calculated values
+                multiplier = grams / Decimal("100")
+                item_calories = food.calories_per_100g * multiplier
+                item_protein = food.protein_g_per_100g * multiplier
+                item_carbs = food.carbs_g_per_100g * multiplier
+                item_fat = food.fat_g_per_100g * multiplier
 
                 total_calories += item_calories
                 total_protein += item_protein
