@@ -68,41 +68,115 @@ class NutritionService:
 
         try:
             # Search public foods
-            public_query = (
-                supabase_service.client.table("foods")
-                .select("*, food_servings(*)")
-                .eq("is_public", True)
-                .ilike("name", f"%{query}%")
-                .order("usage_count", desc=True)
-                .order("verified", desc=True)
-                .limit(limit)
-            )
+            try:
+                public_query = (
+                    supabase_service.client.table("foods")
+                    .select("*, food_servings(*)")
+                    .eq("is_public", True)
+                    .ilike("name", f"%{query}%")
+                    .order("usage_count", desc=True)
+                    .order("verified", desc=True)
+                    .limit(limit)
+                )
 
-            public_response = public_query.execute()
+                public_response = public_query.execute()
+            except Exception as nested_error:
+                # Fallback: PostgREST "JSON could not be generated" error (code 5)
+                # This happens when there's corrupted JSONB data in foods table
+                # Fetch foods and servings separately
+                logger.warning(
+                    "search_foods_nested_query_failed",
+                    query=query,
+                    error=str(nested_error),
+                    fallback="fetching_foods_only"
+                )
+
+                public_query = (
+                    supabase_service.client.table("foods")
+                    .select("*")  # No nested servings
+                    .eq("is_public", True)
+                    .ilike("name", f"%{query}%")
+                    .order("usage_count", desc=True)
+                    .order("verified", desc=True)
+                    .limit(limit)
+                )
+
+                public_response = public_query.execute()
+
             foods = []
 
             # Add public foods
             for row in public_response.data:
                 servings_data = row.pop("food_servings", [])
                 food = Food(**row)
+
+                # If we didn't get servings in the query, fetch them separately
+                if not servings_data and food.id:
+                    try:
+                        servings_response = (
+                            supabase_service.client.table("food_servings")
+                            .select("*")
+                            .eq("food_id", str(food.id))
+                            .execute()
+                        )
+                        servings_data = servings_response.data
+                    except Exception:
+                        # Skip servings if fetch fails
+                        pass
+
                 food.servings = [FoodServing(**s) for s in servings_data]
                 foods.append(food)
 
             # Search user's custom foods if user_id provided
             if user_id:
-                custom_query = (
-                    supabase_service.client.table("foods")
-                    .select("*, food_servings(*)")
-                    .eq("created_by", str(user_id))
-                    .ilike("name", f"%{query}%")
-                    .limit(limit)
-                )
+                try:
+                    custom_query = (
+                        supabase_service.client.table("foods")
+                        .select("*, food_servings(*)")
+                        .eq("created_by", str(user_id))
+                        .ilike("name", f"%{query}%")
+                        .limit(limit)
+                    )
 
-                custom_response = custom_query.execute()
+                    custom_response = custom_query.execute()
+                except Exception as nested_error:
+                    # Fallback: Same as above for custom foods
+                    logger.warning(
+                        "search_custom_foods_nested_query_failed",
+                        query=query,
+                        user_id=str(user_id),
+                        error=str(nested_error),
+                        fallback="fetching_foods_only"
+                    )
+
+                    custom_query = (
+                        supabase_service.client.table("foods")
+                        .select("*")  # No nested servings
+                        .eq("created_by", str(user_id))
+                        .ilike("name", f"%{query}%")
+                        .limit(limit)
+                    )
+
+                    custom_response = custom_query.execute()
 
                 for row in custom_response.data:
                     servings_data = row.pop("food_servings", [])
                     food = Food(**row)
+
+                    # If we didn't get servings in the query, fetch them separately
+                    if not servings_data and food.id:
+                        try:
+                            servings_response = (
+                                supabase_service.client.table("food_servings")
+                                .select("*")
+                                .eq("food_id", str(food.id))
+                                .execute()
+                            )
+                            servings_data = servings_response.data
+                        except Exception:
+                            # Skip servings if fetch fails
+                            pass
+
                     food.servings = [FoodServing(**s) for s in servings_data]
                     foods.append(food)
 
