@@ -306,17 +306,65 @@ async def complete_onboarding(
         user_jwt = None
         if auth_header and auth_header.lower().startswith('bearer '):
             user_jwt = auth_header.split(' ', 1)[1]
-        # Fallback: derive JWT from Supabase auth cookies if Authorization missing
+            log_event(
+                "onboarding_auth_from_header",
+                user_id=user['id'],
+                token_prefix=user_jwt[:20] if user_jwt else None
+            )
+        # Fallback: derive JWT from cookies if Authorization missing
         if not user_jwt:
             cookie_header = request.headers.get('cookie') or request.headers.get('Cookie')
             if cookie_header:
                 import re, urllib.parse
-                m = re.search(r'sb-access-token=([^;]+)', cookie_header)
+                # Try backend's expected cookie name first
+                m = re.search(r'access_token=([^;]+)', cookie_header)
                 if m:
                     try:
                         user_jwt = urllib.parse.unquote(m.group(1))
-                    except Exception:
+                        log_event(
+                            "onboarding_auth_from_access_token_cookie",
+                            user_id=user['id'],
+                            token_prefix=user_jwt[:20] if user_jwt else None
+                        )
+                    except Exception as e:
+                        log_event(
+                            "onboarding_cookie_decode_error",
+                            level="warning",
+                            user_id=user['id'],
+                            error=str(e),
+                            cookie_name="access_token"
+                        )
                         user_jwt = m.group(1)
+                # Fallback to Supabase cookie name
+                if not user_jwt:
+                    m = re.search(r'sb-access-token=([^;]+)', cookie_header)
+                    if m:
+                        try:
+                            user_jwt = urllib.parse.unquote(m.group(1))
+                            log_event(
+                                "onboarding_auth_from_sb_cookie",
+                                user_id=user['id'],
+                                token_prefix=user_jwt[:20] if user_jwt else None
+                            )
+                        except Exception as e:
+                            log_event(
+                                "onboarding_cookie_decode_error",
+                                level="warning",
+                                user_id=user['id'],
+                                error=str(e),
+                                cookie_name="sb-access-token"
+                            )
+                            user_jwt = m.group(1)
+
+        # Log if no JWT found at all
+        if not user_jwt:
+            log_event(
+                "onboarding_no_jwt_found",
+                level="warning",
+                user_id=user['id'],
+                has_auth_header=bool(auth_header),
+                has_cookie_header=bool(request.headers.get('cookie'))
+            )
 
         # Step 3: Update profile (RLS context)
         updated_profile = await supabase_service.update_profile(user_id, profile_update, user_token=user_jwt)

@@ -26,10 +26,12 @@ def get_supabase_client() -> Client:
 
 async def get_current_user(request: Request) -> dict:
     """
-    Dependency to get the current authenticated user from httpOnly cookie.
+    Dependency to get the current authenticated user from httpOnly cookie or Authorization header.
 
-    Reads the access_token from httpOnly cookies, validates it with Supabase,
-    and returns the user data.
+    Tries multiple authentication methods:
+    1. Authorization header (Bearer token)
+    2. access_token cookie (backend standard)
+    3. sb-access-token cookie (Supabase standard)
 
     Args:
         request: FastAPI request object
@@ -40,14 +42,37 @@ async def get_current_user(request: Request) -> dict:
     Raises:
         HTTPException 401: If token is missing or invalid
     """
-    # Get access token from httpOnly cookie
-    access_token = request.cookies.get("access_token")
+    access_token = None
+    auth_method = None
+
+    # Method 1: Check Authorization header
+    auth_header = request.headers.get("authorization") or request.headers.get("Authorization")
+    if auth_header and auth_header.lower().startswith("bearer "):
+        access_token = auth_header.split(" ", 1)[1]
+        auth_method = "header"
+
+    # Method 2: Check access_token cookie (backend standard)
+    if not access_token:
+        access_token = request.cookies.get("access_token")
+        if access_token:
+            auth_method = "access_token_cookie"
+
+    # Method 3: Check sb-access-token cookie (Supabase standard)
+    if not access_token:
+        access_token = request.cookies.get("sb-access-token")
+        if access_token:
+            auth_method = "sb_access_token_cookie"
 
     if not access_token:
-        logger.warning("auth_missing_token", path=request.url.path)
+        logger.warning(
+            "auth_missing_token",
+            path=request.url.path,
+            has_auth_header=bool(auth_header),
+            has_cookies=bool(request.cookies)
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authentication required. Please log in.",
+            detail="Invalid input: Neither bearer token or basic authentication scheme is provided",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
@@ -55,14 +80,24 @@ async def get_current_user(request: Request) -> dict:
     user = await auth_service.get_user_from_token(access_token)
 
     if not user:
-        logger.warning("auth_invalid_token", path=request.url.path)
+        logger.warning(
+            "auth_invalid_token",
+            path=request.url.path,
+            auth_method=auth_method,
+            token_prefix=access_token[:20] if access_token else None
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token. Please log in again.",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    logger.info("auth_success", user_id=user["id"], path=request.url.path)
+    logger.info(
+        "auth_success",
+        user_id=user["id"],
+        path=request.url.path,
+        auth_method=auth_method
+    )
     return user
 
 
