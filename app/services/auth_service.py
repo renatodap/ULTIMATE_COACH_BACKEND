@@ -47,7 +47,8 @@ class AuthService:
         """
         try:
             # Create user in Supabase Auth, passing full_name as metadata
-            # A trigger in Supabase will create the user profile
+            # IMPORTANT: Migration 038 creates a trigger (handle_new_user) that automatically
+            # creates a profile row in the profiles table when a user signs up
             signup_options: dict[str, Any] = {
                 "email": email,
                 "password": password,
