@@ -113,18 +113,20 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             # Continue without Sentry - don't break the app
 
     # Start background jobs (daily adjustments, reassessments, etc.)
+    # TODO: Re-enable when background_jobs module is committed
     # Only in production or if explicitly enabled
-    if not settings.is_development or settings.ENABLE_BACKGROUND_JOBS:
-        try:
-            from app.services.background_jobs import background_jobs_service
-
-            background_jobs_service.start()
-            logger.info("background_jobs_started")
-        except Exception as e:
-            logger.error("background_jobs_startup_failed", error=str(e), exc_info=True)
-            # Continue without background jobs - don't break the app
-    else:
-        logger.info("background_jobs_disabled", reason="development mode")
+    # if not settings.is_development or settings.ENABLE_BACKGROUND_JOBS:
+    #     try:
+    #         from app.services.background_jobs import background_jobs_service
+    #
+    #         background_jobs_service.start()
+    #         logger.info("background_jobs_started")
+    #     except Exception as e:
+    #         logger.error("background_jobs_startup_failed", error=str(e), exc_info=True)
+    #         # Continue without background jobs - don't break the app
+    # else:
+    #     logger.info("background_jobs_disabled", reason="development mode")
+    logger.info("background_jobs_disabled", reason="module not yet committed")
 
     yield
 
@@ -132,12 +134,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("application_shutdown")
 
     # Shutdown background jobs
-    try:
-        from app.services.background_jobs import background_jobs_service
-        background_jobs_service.shutdown()
-        logger.info("background_jobs_stopped")
-    except Exception as e:
-        logger.warning("background_jobs_shutdown_failed", error=str(e))
+    # TODO: Re-enable when background_jobs module is committed
+    # try:
+    #     from app.services.background_jobs import background_jobs_service
+    #     background_jobs_service.shutdown()
+    #     logger.info("background_jobs_stopped")
+    # except Exception as e:
+    #     logger.warning("background_jobs_shutdown_failed", error=str(e))
 
 
 # Create FastAPI app
