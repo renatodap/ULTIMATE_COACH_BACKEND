@@ -126,6 +126,26 @@ def _generate_chat_response(message: str) -> str:
 # MESSAGE ENDPOINTS
 # ============================================================================
 
+@router.post("/test-message")
+async def test_message(
+    request: MessageRequest,
+    current_user = Depends(get_current_user)
+):
+    """
+    Test endpoint to verify Pydantic validation is working.
+    This uses the same MessageRequest schema as /message endpoint.
+    """
+    return {
+        "success": True,
+        "user_id": current_user["id"],
+        "message_received": request.message,
+        "message_length": len(request.message),
+        "has_conversation_id": bool(request.conversation_id),
+        "conversation_id": request.conversation_id,
+        "has_image": bool(request.image_base64)
+    }
+
+
 @router.post("/message")
 async def send_message(
     request: MessageRequest,
