@@ -462,6 +462,16 @@ class SupabaseService:
             List of activity dicts (excludes soft-deleted activities)
         """
         try:
+            # DEBUG: Log input parameters
+            logger.info(
+                "get_user_activities_debug_input",
+                user_id=str(user_id),
+                start_date=start_date,
+                end_date=end_date,
+                limit=limit,
+                offset=offset
+            )
+
             query = (
                 self.client.table("activities")
                 .select("*")
@@ -472,6 +482,7 @@ class SupabaseService:
                 .offset(offset)
             )
 
+            next_day = None
             if start_date:
                 query = query.gte("start_time", start_date)
             if end_date:
@@ -482,12 +493,47 @@ class SupabaseService:
                 next_day = (end_date_dt + timedelta(days=1)).date().isoformat()
                 query = query.lt("start_time", next_day)
 
+            # DEBUG: Log query filters
+            logger.info(
+                "get_user_activities_debug_filters",
+                user_id=str(user_id),
+                has_start_filter=start_date is not None,
+                has_end_filter=end_date is not None,
+                calculated_next_day=next_day,
+                query_comparison=f"start_time < {next_day}" if next_day else "no end filter"
+            )
+
             response = query.execute()
+
+            # DEBUG: Log raw response
+            logger.info(
+                "get_user_activities_debug_response",
+                user_id=str(user_id),
+                row_count=len(response.data),
+                sample_start_times=[a.get('start_time') for a in response.data[:3]] if response.data else [],
+                sample_user_ids=[a.get('user_id') for a in response.data[:3]] if response.data else [],
+                sample_deleted_at=[a.get('deleted_at') for a in response.data[:3]] if response.data else []
+            )
+
             # Map database fields to API fields
             activities = [self._map_activity_from_db(activity) for activity in response.data]
+
+            # DEBUG: Log final count
+            logger.info(
+                "get_user_activities_debug_final",
+                user_id=str(user_id),
+                activities_returned=len(activities)
+            )
+
             return activities
         except Exception as e:
-            logger.error(f"Failed to get activities for user {user_id}: {e}")
+            logger.error(
+                "get_user_activities_failed",
+                user_id=str(user_id),
+                error=str(e),
+                error_type=type(e).__name__,
+                exc_info=True
+            )
             return []
 
     async def create_activity(self, activity_data: Dict[str, Any]) -> Dict[str, Any]:

@@ -8,7 +8,7 @@ import structlog
 from fastapi import APIRouter, HTTPException, status, Depends, Query, Request
 from typing import Optional
 from uuid import UUID
-from datetime import date
+from datetime import date, datetime, timezone
 import json
 from pydantic import ValidationError
 
@@ -27,6 +27,78 @@ from app.api.dependencies import get_current_user
 logger = structlog.get_logger()
 
 router = APIRouter()
+
+
+@router.get(
+    "/activities/debug",
+    response_model=dict,
+    status_code=status.HTTP_200_OK,
+    summary="Debug activities retrieval",
+    description="Diagnostic endpoint to investigate why activities aren't showing (includes unfiltered query)"
+)
+async def debug_activities(
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Debug endpoint to diagnose activities retrieval issues.
+
+    Returns:
+    - current_user_id: The user ID from JWT token
+    - server_time_now: Current server time (UTC)
+    - server_date_today: Current server date
+    - total_activities_for_user: Count of all activities (unfiltered)
+    - recent_activities: Last 10 activities with key fields
+    """
+    try:
+        user_id = UUID(current_user["id"])
+
+        logger.info("debug_activities_called", user_id=str(user_id))
+
+        # Query without soft-delete filter to see ALL activities
+        all_activities_response = activity_service.db.client.table("activities") \
+            .select("id, user_id, activity_name, start_time, deleted_at, created_at") \
+            .eq("user_id", str(user_id)) \
+            .order("created_at", desc=True) \
+            .limit(10) \
+            .execute()
+
+        # Query WITH soft-delete filter (normal query)
+        active_activities_response = activity_service.db.client.table("activities") \
+            .select("id, user_id, activity_name, start_time, deleted_at, created_at") \
+            .eq("user_id", str(user_id)) \
+            .is_("deleted_at", "null") \
+            .order("created_at", desc=True) \
+            .limit(10) \
+            .execute()
+
+        return {
+            "current_user_id": str(user_id),
+            "server_time_now": datetime.now(timezone.utc).isoformat(),
+            "server_date_today": date.today().isoformat(),
+            "total_activities_all": len(all_activities_response.data),
+            "total_activities_active": len(active_activities_response.data),
+            "all_activities_sample": all_activities_response.data,
+            "active_activities_sample": active_activities_response.data,
+            "debug_notes": [
+                "all_activities_sample: Shows ALL activities (including deleted)",
+                "active_activities_sample: Shows only non-deleted activities",
+                "Check if deleted_at is null for your activities",
+                "Check if user_id matches current_user_id",
+                "Check if start_time is within expected range"
+            ]
+        }
+
+    except Exception as e:
+        logger.error(
+            "debug_activities_error",
+            user_id=current_user["id"],
+            error=str(e),
+            exc_info=True
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Debug endpoint failed: {str(e)}"
+        )
 
 
 @router.get(
