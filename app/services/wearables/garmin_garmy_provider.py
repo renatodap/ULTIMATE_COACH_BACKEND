@@ -54,8 +54,21 @@ class GarminGarmyProvider(WearableProvider):
             self._client = api_client
             return True, None
         except Exception as e:
-            logger.error("garmin_auth_failed", error=str(e))
-            return False, str(e)
+            error_str = str(e).lower()
+
+            # Provide user-friendly error messages for common issues
+            if '401' in error_str or 'unauthorized' in error_str:
+                logger.warning("garmin_auth_expired", error=str(e))
+                return False, "credentials_expired"
+            elif '429' in error_str or 'rate limit' in error_str:
+                logger.warning("garmin_rate_limited", error=str(e))
+                return False, "rate_limited"
+            elif 'timeout' in error_str or 'connection' in error_str:
+                logger.warning("garmin_connection_failed", error=str(e))
+                return False, "connection_error"
+            else:
+                logger.error("garmin_auth_failed", error=str(e))
+                return False, "authentication_failed"
 
     async def sync_range(
         self, user_id: UUID, start: date, end: date, metrics: Optional[List[str]] = None

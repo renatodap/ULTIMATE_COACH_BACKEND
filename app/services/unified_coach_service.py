@@ -193,6 +193,13 @@ class UnifiedCoachService:
             )
             logger.info(f"[UnifiedCoach] 💾 Saved user message: {user_message_id[:8]}...")
 
+            # STEP 3.5: Extract context (sentiment, life context, informal activities) in background
+            if background_tasks:
+                background_tasks.add_task(
+                    self._extract_and_store_context,
+                    user_id, user_message_id, message
+                )
+
             # STEP 4: Classify message type
             classification = await self.classifier.classify_message(
                 message=message,
@@ -464,8 +471,8 @@ class UnifiedCoachService:
                 # TODO: If WebSocket/SSE is implemented, push this ACK immediately to frontend
                 # For now, it just gets saved to DB and can be retrieved by frontend polling
 
-            # STEP 1: Build system prompt
-            system_prompt = self._build_system_prompt(user_language)
+            # STEP 1: Build system prompt with program context
+            system_prompt = await self._build_system_prompt(user_id, user_language)
 
             # STEP 2: Get conversation memory (3-tier retrieval)
             memory = await self.conversation_memory.get_conversation_context(
@@ -760,8 +767,8 @@ class UnifiedCoachService:
         logger.info(f"[UnifiedCoach.groq] ⚡ START")
 
         try:
-            # Build simplified system prompt (same personality, no tool docs)
-            system_prompt = self._build_system_prompt(user_language)
+            # Build simplified system prompt with program context
+            system_prompt = await self._build_system_prompt(user_id, user_language)
 
             # Get minimal conversation memory (last 5 messages only)
             memory = await self.conversation_memory.get_conversation_context(
@@ -1241,15 +1248,82 @@ class UnifiedCoachService:
         except Exception as e:
             logger.error(f"[UnifiedCoach] ❌ Vectorization failed: {e}")
 
-    def _build_system_prompt(self, user_language: str) -> str:
+    async def _extract_and_store_context(
+        self,
+        user_id: str,
+        message_id: str,
+        message: str
+    ):
         """
-        Build system prompt with personality + security isolation.
+        Extract and store context from user message (background task).
+
+        Extracts:
+        - Sentiment score
+        - Life context (stress, injury, travel, fatigue, etc.)
+        - Informal activities (e.g., "I played tennis today")
+
+        All data stored in user_context_log table for use by reassessment system.
+        """
+        try:
+            from ultimate_ai_consultation.integration.backend.app.services.context_extraction import process_message_for_context
+
+            logger.info(f"[UnifiedCoach] 🧠 Extracting context: message={message_id[:8]}...")
+
+            # Extract all context types (sentiment, life context, informal activities)
+            result = await process_message_for_context(
+                message=message,
+                user_id=user_id,
+                message_id=message_id
+            )
+
+            # Log what was extracted
+            extracted = []
+            if result.get("sentiment_score") is not None:
+                extracted.append(f"sentiment={result['sentiment_score']:.2f}")
+            if result.get("life_context"):
+                ctx = result["life_context"]
+                extracted.append(f"context={ctx.get('context_type')}")
+            if result.get("informal_activity"):
+                act = result["informal_activity"]
+                extracted.append(f"activity={act.get('activity_type')}")
+
+            if extracted:
+                logger.info(f"[UnifiedCoach] ✅ Context extracted: {', '.join(extracted)}")
+            else:
+                logger.debug(f"[UnifiedCoach] No context extracted from message")
+
+        except Exception as e:
+            logger.error(f"[UnifiedCoach] ❌ Context extraction failed: {e}", exc_info=True)
+            # Don't raise - this is a background task, shouldn't break main flow
+
+    async def _build_system_prompt(self, user_id: str, user_language: str) -> str:
+        """
+        Build system prompt with personality + security isolation + program context.
 
         Uses XML tags to clearly separate instructions from user input
         for prompt injection protection.
         """
+        # Import coach context provider
+        from ultimate_ai_consultation.integration.backend.app.services.coach_context_provider import get_coach_context, format_context_for_prompt
+
+        # Get comprehensive user context (program, progress, sentiment)
+        try:
+            context = await get_coach_context(
+                user_id=user_id,
+                supabase_client=self.supabase,
+                include_detailed_plan=False  # Lightweight summary for system prompt
+            )
+            context_section = format_context_for_prompt(context)
+        except Exception as e:
+            logger.warning(f"[UnifiedCoach] Failed to load program context: {e}")
+            context_section = "No active program data available."
+
         return f"""<system_instructions>
 You are an AI fitness and nutrition coach - DIRECT TRUTH-TELLER, not fake motivational fluff.
+
+<user_program_context>
+{context_section}
+</user_program_context>
 
 <context_awareness>
 **CRITICAL: Match the user's conversational energy**

@@ -131,6 +131,21 @@ class WearableSyncService:
 
             ok, err = await prov.authenticate(creds)
             if not ok:
+                # Categorize auth errors for better user feedback
+                if err in ["credentials_expired", "authentication_failed"]:
+                    # Update account status to indicate re-auth needed
+                    self.db.table("wearable_accounts").update({
+                        "status": "auth_required",
+                        "error_message": "Please reconnect your account - credentials have expired",
+                        "updated_at": self._now().isoformat()
+                    }).eq("user_id", str(user_id)).eq("provider", provider).execute()
+                elif err == "rate_limited":
+                    # Temporary error - don't change account status
+                    logger.warning("wearable_rate_limited", provider=provider, user_id=str(user_id))
+                elif err == "connection_error":
+                    # Network issue - don't change account status
+                    logger.warning("wearable_connection_error", provider=provider, user_id=str(user_id))
+
                 raise RuntimeError(f"Auth failed: {err}")
 
             end = date.today()
@@ -162,10 +177,35 @@ class WearableSyncService:
             return {"id": job_id, **finish}
 
         except Exception as e:
-            logger.error("wearable_sync_failed", error=str(e))
-            self.db.table("wearable_sync_jobs").update({"status": "error", "finished_at": self._now().isoformat(), "error_message": str(e)}).eq("id", job_id).execute()
-            self.db.table("wearable_accounts").update({"status": "error", "error_message": str(e)}).eq("user_id", str(user_id)).eq("provider", provider).execute()
-            return {"id": job_id, "status": "error", "error": str(e)}
+            error_msg = str(e)
+
+            # Categorize errors for appropriate logging and status updates
+            is_auth_error = any(x in error_msg.lower() for x in ["auth failed", "credentials_expired", "unauthorized", "401"])
+            is_rate_limit = any(x in error_msg.lower() for x in ["rate_limited", "rate limit", "429"])
+            is_network_error = any(x in error_msg.lower() for x in ["connection_error", "timeout", "network"])
+
+            # Log with appropriate level
+            if is_rate_limit or is_network_error:
+                logger.warning("wearable_sync_temporary_error", error=error_msg, user_id=str(user_id), provider=provider)
+            else:
+                logger.error("wearable_sync_failed", error=error_msg, user_id=str(user_id), provider=provider)
+
+            # Update job status
+            self.db.table("wearable_sync_jobs").update({
+                "status": "error",
+                "finished_at": self._now().isoformat(),
+                "error_message": error_msg
+            }).eq("id", job_id).execute()
+
+            # Only update account status for auth errors (already handled above)
+            # Don't mark account as "error" for temporary network/rate limit issues
+            if not (is_rate_limit or is_network_error or is_auth_error):
+                self.db.table("wearable_accounts").update({
+                    "status": "error",
+                    "error_message": error_msg
+                }).eq("user_id", str(user_id)).eq("provider", provider).execute()
+
+            return {"id": job_id, "status": "error", "error": error_msg}
 
     async def get_status(self, user_id: UUID) -> Dict[str, Any]:
         accs = (

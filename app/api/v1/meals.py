@@ -9,7 +9,7 @@ import structlog
 from fastapi import APIRouter, HTTPException, status, Depends, Query
 from typing import Optional
 from uuid import UUID
-from datetime import datetime
+from datetime import datetime, date
 
 from app.models.nutrition import (
     Meal,
@@ -19,6 +19,7 @@ from app.models.nutrition import (
     NutritionStats,
 )
 from app.services.nutrition_service import nutrition_service
+from app.services.meal_matching_service import meal_matching_service
 from app.api.dependencies import get_current_user
 
 logger = structlog.get_logger()
@@ -328,4 +329,216 @@ async def get_nutrition_stats(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve nutrition stats",
+        )
+
+
+@router.post(
+    "/meals/{meal_id}/match",
+    response_model=dict,
+    status_code=status.HTTP_200_OK,
+    summary="Match meal to planned meal",
+    description="Manually trigger matching for an existing meal"
+)
+async def match_meal(
+    meal_id: UUID,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Manually match a logged meal to a planned meal.
+
+    This endpoint:
+    1. Finds planned meals for the meal's day and type
+    2. Calculates similarity scores based on macros
+    3. Links to best match (if score > threshold)
+    4. Creates adherence_record with macro variance
+
+    Use cases:
+    - Retry matching if it failed during creation
+    - Re-match after updating meal details
+    - Manual nutrition adherence tracking
+    """
+    try:
+        logger.info(
+            "manual_meal_matching",
+            meal_id=str(meal_id),
+            user_id=current_user["id"]
+        )
+
+        adherence = await meal_matching_service.match_meal_to_plan(
+            meal_log_id=str(meal_id),
+            user_id=current_user["id"]
+        )
+
+        if not adherence:
+            return {
+                "matched": False,
+                "message": "No matching planned meal found"
+            }
+
+        logger.info(
+            "meal_matched",
+            meal_id=str(meal_id),
+            adherence_id=adherence["id"],
+            status=adherence["status"]
+        )
+
+        return {
+            "matched": True,
+            "adherence_record": adherence,
+            "message": f"Meal matched with status: {adherence['status']}"
+        }
+
+    except Exception as e:
+        logger.error(
+            "match_meal_error",
+            meal_id=str(meal_id),
+            user_id=current_user["id"],
+            error=str(e),
+            exc_info=True
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to match meal"
+        )
+
+
+@router.post(
+    "/meals/check-skipped",
+    response_model=dict,
+    status_code=status.HTTP_200_OK,
+    summary="Check for skipped meals",
+    description="Find planned meals that were not logged"
+)
+async def check_skipped_meals(
+    target_date: Optional[str] = Query(None, description="Date to check (YYYY-MM-DD), defaults to today"),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Check for planned meals that were not logged on a given day.
+
+    Creates adherence records with status="skipped" for meals that have no matching log.
+
+    Returns:
+    - List of skipped meals
+    - Count of skipped meals
+    """
+    try:
+        # Parse date or use today
+        date_obj = date.fromisoformat(target_date) if target_date else date.today()
+
+        logger.info(
+            "checking_skipped_meals",
+            user_id=current_user["id"],
+            date=str(date_obj)
+        )
+
+        skipped = await meal_matching_service.match_skipped_meals(
+            user_id=current_user["id"],
+            target_date=date_obj
+        )
+
+        logger.info(
+            "skipped_meals_checked",
+            user_id=current_user["id"],
+            date=str(date_obj),
+            skipped_count=len(skipped)
+        )
+
+        return {
+            "date": str(date_obj),
+            "skipped_count": len(skipped),
+            "skipped_meals": skipped
+        }
+
+    except ValueError as e:
+        logger.warning(
+            "invalid_date_format",
+            user_id=current_user["id"],
+            error=str(e)
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid date format: {str(e)}"
+        )
+    except Exception as e:
+        logger.error(
+            "check_skipped_meals_error",
+            user_id=current_user["id"],
+            error=str(e),
+            exc_info=True
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to check skipped meals"
+        )
+
+
+@router.get(
+    "/nutrition/adherence",
+    response_model=dict,
+    status_code=status.HTTP_200_OK,
+    summary="Get daily macro adherence",
+    description="Calculate macro adherence for a specific day"
+)
+async def get_macro_adherence(
+    target_date: Optional[str] = Query(None, description="Date to check (YYYY-MM-DD), defaults to today"),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Calculate daily macro adherence.
+
+    Compares total logged macros vs total planned macros for the day.
+
+    Returns:
+    - Actual vs target for calories, protein, carbs, fat
+    - Variance (actual - target)
+    - Variance percentage
+    - Adherence percentage (100% = exact match)
+    """
+    try:
+        # Parse date or use today
+        date_obj = date.fromisoformat(target_date) if target_date else date.today()
+
+        logger.info(
+            "calculating_macro_adherence",
+            user_id=current_user["id"],
+            date=str(date_obj)
+        )
+
+        adherence = await meal_matching_service.calculate_daily_macro_adherence(
+            user_id=current_user["id"],
+            target_date=date_obj
+        )
+
+        logger.info(
+            "macro_adherence_calculated",
+            user_id=current_user["id"],
+            date=str(date_obj)
+        )
+
+        return {
+            "date": str(date_obj),
+            "macros": adherence
+        }
+
+    except ValueError as e:
+        logger.warning(
+            "invalid_date_format",
+            user_id=current_user["id"],
+            error=str(e)
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid date format: {str(e)}"
+        )
+    except Exception as e:
+        logger.error(
+            "macro_adherence_error",
+            user_id=current_user["id"],
+            error=str(e),
+            exc_info=True
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to calculate macro adherence"
         )

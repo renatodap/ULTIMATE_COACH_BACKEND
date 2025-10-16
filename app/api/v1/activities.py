@@ -21,6 +21,7 @@ from app.models.activities import (
     SuccessResponse
 )
 from app.services.activity_service import activity_service
+from app.services.activity_matching_service import activity_matching_service
 from app.api.dependencies import get_current_user
 
 logger = structlog.get_logger()
@@ -470,4 +471,145 @@ async def delete_activity(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to delete activity"
+        )
+
+
+@router.post(
+    "/activities/{activity_id}/match",
+    response_model=dict,
+    status_code=status.HTTP_200_OK,
+    summary="Match activity to planned session",
+    description="Manually trigger matching for an existing activity"
+)
+async def match_activity(
+    activity_id: UUID,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Manually match an activity to a planned session.
+
+    This endpoint:
+    1. Finds planned sessions for the activity's day
+    2. Calculates similarity scores
+    3. Links to best match (if score > threshold)
+    4. Creates adherence_record
+
+    Use cases:
+    - Retry matching if it failed during creation
+    - Re-match after updating activity details
+    - Manual adherence tracking
+    """
+    try:
+        logger.info(
+            "manual_activity_matching",
+            activity_id=str(activity_id),
+            user_id=current_user["id"]
+        )
+
+        adherence = await activity_matching_service.match_activity_to_session(
+            activity_id=str(activity_id),
+            user_id=current_user["id"]
+        )
+
+        if not adherence:
+            return {
+                "matched": False,
+                "message": "No matching planned session found"
+            }
+
+        logger.info(
+            "activity_matched",
+            activity_id=str(activity_id),
+            adherence_id=adherence["id"],
+            status=adherence["status"]
+        )
+
+        return {
+            "matched": True,
+            "adherence_record": adherence,
+            "message": f"Activity matched with status: {adherence['status']}"
+        }
+
+    except Exception as e:
+        logger.error(
+            "match_activity_error",
+            activity_id=str(activity_id),
+            user_id=current_user["id"],
+            error=str(e),
+            exc_info=True
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to match activity"
+        )
+
+
+@router.post(
+    "/activities/check-skipped",
+    response_model=dict,
+    status_code=status.HTTP_200_OK,
+    summary="Check for skipped sessions",
+    description="Find planned sessions that were not completed"
+)
+async def check_skipped_sessions(
+    target_date: Optional[str] = Query(None, description="Date to check (YYYY-MM-DD), defaults to today"),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Check for planned sessions that were not completed on a given day.
+
+    Creates adherence records with status="skipped" for sessions that have no matching activity.
+
+    Returns:
+    - List of skipped sessions
+    - Count of skipped sessions
+    """
+    try:
+        # Parse date or use today
+        date_obj = date.fromisoformat(target_date) if target_date else date.today()
+
+        logger.info(
+            "checking_skipped_sessions",
+            user_id=current_user["id"],
+            date=str(date_obj)
+        )
+
+        skipped = await activity_matching_service.match_skipped_sessions(
+            user_id=current_user["id"],
+            target_date=date_obj
+        )
+
+        logger.info(
+            "skipped_sessions_checked",
+            user_id=current_user["id"],
+            date=str(date_obj),
+            skipped_count=len(skipped)
+        )
+
+        return {
+            "date": str(date_obj),
+            "skipped_count": len(skipped),
+            "skipped_sessions": skipped
+        }
+
+    except ValueError as e:
+        logger.warning(
+            "invalid_date_format",
+            user_id=current_user["id"],
+            error=str(e)
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid date format: {str(e)}"
+        )
+    except Exception as e:
+        logger.error(
+            "check_skipped_error",
+            user_id=current_user["id"],
+            error=str(e),
+            exc_info=True
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to check skipped sessions"
         )

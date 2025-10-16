@@ -63,6 +63,9 @@ class Settings(BaseSettings):
     GARMIN_ENABLED: bool = False
     WEARABLES_INLINE_SYNC_ENABLED: bool = False  # Allow sync-inline endpoint (dev/testing)
 
+    # Background Jobs
+    ENABLE_BACKGROUND_JOBS: bool = False  # Enable background jobs in development (default: production only)
+
     @property
     def cors_origins_list(self) -> List[str]:
         """Parse CORS_ORIGINS comma-separated string into list."""

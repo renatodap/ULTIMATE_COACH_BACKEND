@@ -13,6 +13,7 @@ from fastapi import HTTPException, status
 
 from app.services.supabase_service import SupabaseService
 from app.services.calorie_calculator import estimate_activity_calories
+from app.services.activity_matching_service import activity_matching_service
 
 logger = structlog.get_logger()  # Force reload
 
@@ -365,6 +366,21 @@ class ActivityService:
                 activity_id=activity['id'],
                 user_id=str(user_id)
             )
+
+            # Attempt to match activity to planned session (non-blocking)
+            try:
+                await activity_matching_service.match_activity_to_session(
+                    activity_id=activity['id'],
+                    user_id=str(user_id)
+                )
+            except Exception as e:
+                # Don't fail activity creation if matching fails
+                logger.warning(
+                    "activity_matching_failed",
+                    activity_id=activity['id'],
+                    user_id=str(user_id),
+                    error=str(e)
+                )
 
             return activity
 

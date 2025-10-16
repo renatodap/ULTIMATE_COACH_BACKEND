@@ -8,7 +8,9 @@
       "Read(//c/Users/pradord/Documents/Projects/ULTIMATE_COACH_FRONTEND/app/**)",
       "Read(//c/Users/pradord/Documents/Projects/ULTIMATE_COACH_FRONTEND/app/activities/log/**)",
       "Read(//c/Users/pradord/Documents/Projects/ULTIMATE_COACH_FRONTEND/**)",
-      "Read(//c/Users/pradord/Documents/Projects/ultimate_ai_coach_ultimate/**)"
+      "Read(//c/Users/pradord/Documents/Projects/ultimate_ai_coach_ultimate/**)",
+      "Read(//c/Users/pradord/Documents/Projects/SHARPENED/ULTIMATE_COACH_FRONTEND/app/dashboard/**)",
+      "Read(//c/Users/pradord/Documents/Projects/SHARPENED/ULTIMATE_COACH_FRONTEND/**)"
     ],
     "deny": [],
     "ask": []
