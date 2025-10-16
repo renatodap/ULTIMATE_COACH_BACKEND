@@ -32,6 +32,7 @@ from app.services.nutrition_service import nutrition_service
 from app.services.activity_service import activity_service
 from app.services.body_metrics_service import body_metrics_service
 from app.services.unified_coach_service import get_unified_coach_service
+from app.services.meal_item_transformer import get_meal_item_transformer
 from app.utils.coach_messages import generate_log_confirmation_message, generate_chat_response
 from uuid import UUID
 
@@ -203,14 +204,61 @@ async def confirm_log(
         log_id = None
 
         if log_type == "meal":
-            # Save to meals table
+            # Transform extracted food names to proper meal items
+            # LLM extraction returns: foods: [{name, quantity_g}]
+            # We need to transform to: items: [{food_id, quantity, serving_id, grams, ...}]
+            items = structured_data.get("items", [])
+
+            if not items and structured_data.get("foods"):
+                # Foods array from LLM extraction - needs transformation
+                logger.info(
+                    f"[CoachAPI] 🔄 Transforming {len(structured_data['foods'])} "
+                    f"extracted foods to meal items"
+                )
+
+                try:
+                    transformer = get_meal_item_transformer()
+                    items = await transformer.transform_foods_to_items(
+                        foods=structured_data["foods"],
+                        user_id=user_id
+                    )
+
+                    logger.info(f"[CoachAPI] ✅ Transformed to {len(items)} meal items")
+
+                    # Update structured_data with transformed items for storage
+                    structured_data["items"] = items
+
+                except ValueError as ve:
+                    # Food not found in database
+                    logger.error(f"[CoachAPI] ❌ Food not found: {ve}")
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Food not found: {str(ve)}"
+                    )
+                except Exception as te:
+                    # Transformation error
+                    logger.error(f"[CoachAPI] ❌ Transformation failed: {te}", exc_info=True)
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"Failed to transform food data: {str(te)}"
+                    )
+
+            if not items:
+                # No items after transformation - can't create empty meal
+                logger.warning("[CoachAPI] ⚠️ No meal items to log")
+                raise HTTPException(
+                    status_code=400,
+                    detail="No food items found to log"
+                )
+
+            # Save to meals table with transformed items
             meal = await nutrition_service.create_meal(
                 user_id=user_id,
                 name=structured_data.get("name"),
                 meal_type=structured_data.get("meal_type", "snack"),
                 logged_at=datetime.fromisoformat(structured_data.get("logged_at")) if structured_data.get("logged_at") else datetime.utcnow(),
                 notes=structured_data.get("notes"),
-                items=structured_data.get("items", []),
+                items=items,  # Use transformed items
                 source="coach_chat",
                 ai_confidence=qe.get("confidence")
             )
