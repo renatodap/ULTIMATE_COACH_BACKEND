@@ -572,15 +572,16 @@ class NutritionService:
         """
         Create a meal with items.
 
-        Calculates nutrition totals from items.
-        VALIDATES: serving_id belongs to food_id.
+        Supports two logging methods:
+        - GRAM-BASED: serving_id = None, uses item.grams + pre-calculated nutrition
+        - SERVING-BASED: serving_id provided, validates serving and calculates nutrition
 
         PERFORMANCE: Batches all food fetches in a single query (fixes N+1 issue).
 
         Raises:
             MealEmptyError: If items list is empty
             FoodNotFoundError: If any food_id is not found or inaccessible
-            InvalidServingError: If any serving_id is not found
+            InvalidServingError: If serving_id is provided but not found
             ServingMismatchError: If serving doesn't belong to food
             MealCreationFailedError: If database operations fail
         """
@@ -630,29 +631,42 @@ class NutritionService:
                 if not food:
                     raise FoodNotFoundError(str(item.food_id))
 
-                # Find serving
-                serving = next(
-                    (s for s in food.servings if s.id == item.serving_id), None
-                )
-                if not serving:
-                    raise InvalidServingError(str(item.serving_id), str(item.food_id))
+                # Check if gram-based logging (serving_id is None) or serving-based
+                if item.serving_id is None:
+                    # GRAM-BASED LOGGING: Use item.grams directly
+                    # Frontend sends pre-calculated nutrition values
+                    grams = item.grams
+                    serving = None  # No serving needed
 
-                # Validate serving belongs to food
-                if serving.food_id != item.food_id:
-                    raise ServingMismatchError(
-                        str(item.serving_id),
-                        str(item.food_id),
-                        str(serving.food_id),
+                    # Use nutrition values from frontend (already calculated)
+                    item_calories = item.calories
+                    item_protein = item.protein_g
+                    item_carbs = item.carbs_g
+                    item_fat = item.fat_g
+                else:
+                    # SERVING-BASED LOGGING: Find and validate serving
+                    serving = next(
+                        (s for s in food.servings if s.id == item.serving_id), None
                     )
+                    if not serving:
+                        raise InvalidServingError(str(item.serving_id), str(item.food_id))
 
-                # Calculate nutrition
-                grams = item.quantity * serving.grams_per_serving
-                multiplier = grams / Decimal("100")
+                    # Validate serving belongs to food
+                    if serving.food_id != item.food_id:
+                        raise ServingMismatchError(
+                            str(item.serving_id),
+                            str(item.food_id),
+                            str(serving.food_id),
+                        )
 
-                item_calories = food.calories_per_100g * multiplier
-                item_protein = food.protein_g_per_100g * multiplier
-                item_carbs = food.carbs_g_per_100g * multiplier
-                item_fat = food.fat_g_per_100g * multiplier
+                    # Calculate nutrition from serving
+                    grams = item.quantity * serving.grams_per_serving
+                    multiplier = grams / Decimal("100")
+
+                    item_calories = food.calories_per_100g * multiplier
+                    item_protein = food.protein_g_per_100g * multiplier
+                    item_carbs = food.carbs_g_per_100g * multiplier
+                    item_fat = food.fat_g_per_100g * multiplier
 
                 total_calories += item_calories
                 total_protein += item_protein
@@ -662,7 +676,7 @@ class NutritionService:
                 validated_items.append(
                     {
                         "food": food,
-                        "serving": serving,
+                        "serving": serving,  # Can be None for gram-based logging
                         "quantity": item.quantity,
                         "grams": grams,
                         "calories": item_calories,
@@ -701,19 +715,22 @@ class NutritionService:
             # Create meal items
             meal_items_data = []
             for validated in validated_items:
+                # Handle gram-based logging (serving can be None)
+                serving = validated["serving"]
+
                 meal_items_data.append(
                     {
                         "meal_id": meal_id,
                         "food_id": str(validated["food"].id),
                         "quantity": float(validated["quantity"]),
-                        "serving_id": str(validated["serving"].id),
+                        "serving_id": str(serving.id) if serving else None,
                         "grams": float(validated["grams"]),
                         "calories": float(validated["calories"]),
                         "protein_g": float(validated["protein_g"]),
                         "carbs_g": float(validated["carbs_g"]),
                         "fat_g": float(validated["fat_g"]),
-                        "display_unit": validated["serving"].serving_unit,
-                        "display_label": validated["serving"].serving_label,
+                        "display_unit": serving.serving_unit if serving else "g",
+                        "display_label": serving.serving_label if serving else None,
                         "display_order": validated["display_order"],
                     }
                 )
