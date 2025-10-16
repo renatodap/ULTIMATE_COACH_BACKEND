@@ -119,6 +119,16 @@ CATEGORY 3: COMPLEX (60% of queries)
 - "Am I on track?"
 - Any question about "my [anything]"
 
+**ALWAYS COMPLEX - Data Access Questions:**
+- "You should have access to my [goals/data/profile/stats]"
+- "You should know my [goals/macros/preferences]"
+- "Do you have access to my [anything]?"
+- "Can you access my [anything]?"
+- "Do you know my [anything]?"
+- "You have my [anything], right?"
+- "You can see my [anything], right?"
+- ANY query implying the coach should have/know user data
+
 **ALWAYS COMPLEX - Planning Requests:**
 - "Give me a [workout/meal/training] plan"
 - "Create a [program/routine/plan]"
@@ -172,6 +182,8 @@ EXAMPLES (Learn the pattern)
 "What are my macros?" → {"complexity": "complex", "confidence": 0.98, "recommended_model": "claude", "reasoning": "Needs get_user_profile"}
 "Can you see my profile?" → {"complexity": "complex", "confidence": 0.98, "recommended_model": "claude", "reasoning": "Needs get_user_profile tool"}
 "What did I eat yesterday?" → {"complexity": "complex", "confidence": 0.98, "recommended_model": "claude", "reasoning": "Needs get_recent_meals"}
+"You should have access to my goals" → {"complexity": "complex", "confidence": 0.98, "recommended_model": "claude", "reasoning": "Implies user expects data retrieval - needs get_user_profile"}
+"Do you know my macros?" → {"complexity": "complex", "confidence": 0.98, "recommended_model": "claude", "reasoning": "Questions about coach's data access require tool calls"}
 
 **COMPLEX - Planning:**
 "Give me a 4-week workout plan" → {"complexity": "complex", "confidence": 0.98, "recommended_model": "claude", "reasoning": "Needs get_user_profile + multi-step planning"}
