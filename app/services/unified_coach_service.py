@@ -1292,6 +1292,10 @@ class UnifiedCoachService:
             else:
                 logger.debug(f"[UnifiedCoach] No context extracted from message")
 
+        except ImportError:
+            # Module not available - skip context extraction
+            logger.debug("[UnifiedCoach] Context extraction module not available, skipping")
+            # This is a background task - gracefully skip if module not available
         except Exception as e:
             logger.error(f"[UnifiedCoach] ❌ Context extraction failed: {e}", exc_info=True)
             # Don't raise - this is a background task, shouldn't break main flow
@@ -1303,17 +1307,21 @@ class UnifiedCoachService:
         Uses XML tags to clearly separate instructions from user input
         for prompt injection protection.
         """
-        # Import coach context provider
-        from ultimate_ai_consultation.integration.backend.app.services.coach_context_provider import get_coach_context, format_context_for_prompt
-
-        # Get comprehensive user context (program, progress, sentiment)
+        # Try to import coach context provider (optional dependency)
         try:
+            from ultimate_ai_consultation.integration.backend.app.services.coach_context_provider import get_coach_context, format_context_for_prompt
+
+            # Get comprehensive user context (program, progress, sentiment)
             context = await get_coach_context(
                 user_id=user_id,
                 supabase_client=self.supabase,
                 include_detailed_plan=False  # Lightweight summary for system prompt
             )
             context_section = format_context_for_prompt(context)
+        except ImportError:
+            # Module not available - use basic context
+            logger.info("[UnifiedCoach] Advanced context provider not available, using basic prompt")
+            context_section = "No active program data available."
         except Exception as e:
             logger.warning(f"[UnifiedCoach] Failed to load program context: {e}")
             context_section = "No active program data available."
