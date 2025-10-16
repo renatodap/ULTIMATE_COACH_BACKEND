@@ -112,10 +112,32 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             logger.warning("sentry_initialization_failed", error=str(e))
             # Continue without Sentry - don't break the app
 
+    # Start background jobs (daily adjustments, reassessments, etc.)
+    # Only in production or if explicitly enabled
+    if not settings.is_development or settings.ENABLE_BACKGROUND_JOBS:
+        try:
+            from app.services.background_jobs import background_jobs_service
+
+            background_jobs_service.start()
+            logger.info("background_jobs_started")
+        except Exception as e:
+            logger.error("background_jobs_startup_failed", error=str(e), exc_info=True)
+            # Continue without background jobs - don't break the app
+    else:
+        logger.info("background_jobs_disabled", reason="development mode")
+
     yield
 
     # Shutdown
     logger.info("application_shutdown")
+
+    # Shutdown background jobs
+    try:
+        from app.services.background_jobs import background_jobs_service
+        background_jobs_service.shutdown()
+        logger.info("background_jobs_stopped")
+    except Exception as e:
+        logger.warning("background_jobs_shutdown_failed", error=str(e))
 
 
 # Create FastAPI app
@@ -145,6 +167,32 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["*"],
 )
+
+# Add request logging middleware for debugging coach endpoint
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request as StarletteRequest
+from starlette.responses import Response
+import json
+
+class RequestLoggingMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: StarletteRequest, call_next):
+        # Only log coach endpoints for debugging
+        if "/coach/message" in request.url.path and request.method == "POST":
+            logger.info(
+                "coach_request_headers",
+                method=request.method,
+                path=request.url.path,
+                content_type=request.headers.get("content-type"),
+                content_length=request.headers.get("content-length"),
+                has_auth=bool(request.headers.get("authorization")),
+                origin=request.headers.get("origin"),
+                user_agent=request.headers.get("user-agent", "")[:100]
+            )
+
+        response = await call_next(request)
+        return response
+
+app.add_middleware(RequestLoggingMiddleware)
 
 
 @app.exception_handler(Exception)
@@ -249,7 +297,10 @@ async def request_validation_error_handler(request, exc: RequestValidationError)
         path=str(request.url.path),
         method=request.method,
         content_type=request.headers.get("content-type"),
+        content_length=request.headers.get("content-length"),
+        authorization_present=bool(request.headers.get("authorization")),
         errors=sanitized_errors,
+        error_details=[{"loc": e.get("loc"), "msg": e.get("msg"), "type": e.get("type")} for e in sanitized_errors]
     )
 
     origin = request.headers.get("origin", "http://localhost:3000")
@@ -321,7 +372,7 @@ async def root():
 
 
 # Import and include routers
-from app.api.v1 import health, auth, users, onboarding, foods, meals, activities, quick_meals, templates, body_metrics, dashboard, exercise_sets, coach, wearables  # , planning, programs
+from app.api.v1 import health, auth, users, onboarding, foods, meals, activities, quick_meals, templates, body_metrics, dashboard, exercise_sets, coach, wearables, planning, programs
 from app.api.v1.planlogs import router as planlogs_router
 
 app.include_router(health.router, prefix="/api/v1", tags=["Health"])
@@ -338,10 +389,8 @@ app.include_router(body_metrics.router, prefix="/api/v1", tags=["Body Metrics"])
 app.include_router(exercise_sets.router, prefix="/api/v1", tags=["Exercise Sets"])
 app.include_router(coach.router, prefix="/api/v1", tags=["AI Coach"])
 app.include_router(wearables.router, prefix="/api/v1", tags=["Wearables"])
-# TEMPORARILY DISABLED: Missing database tables (programs, day_overrides)
-# TODO: Create migrations for these tables before re-enabling
-# app.include_router(planning.router, prefix="/api/v1", tags=["Planning"])
-# app.include_router(programs.router, prefix="/api/v1", tags=["Programs"])
+app.include_router(planning.router, prefix="/api/v1", tags=["Planning & Adaptive"])
+app.include_router(programs.router, prefix="/api/v1", tags=["Programs"])
 app.include_router(planlogs_router, prefix="/api/v1/planlogs", tags=["Plan Logs"])
 
 

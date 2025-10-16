@@ -146,7 +146,13 @@ async def send_message(
     try:
         user_id = current_user["id"]
 
-        logger.info("coach_message_received", user_id=user_id[:8])
+        logger.info(
+            "coach_message_received",
+            user_id=user_id[:8],
+            message_length=len(request.message) if request.message else 0,
+            has_conversation_id=bool(request.conversation_id),
+            has_image=bool(request.image_base64)
+        )
 
         # Process message through UnifiedCoachService (THE BRAIN)
         coach = get_unified_coach()
