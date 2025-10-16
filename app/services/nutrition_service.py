@@ -54,10 +54,13 @@ class NutritionService:
         user_id: Optional[UUID] = None,
     ) -> List[Food]:
         """
-        Search foods by name using Supabase text search.
+        Search foods by name using Supabase RPC function.
 
         Returns public foods + user's custom foods.
         Minimum 2 characters required.
+
+        Uses PostgreSQL RPC function to bypass PostgREST worker crashes.
+        Falls back to direct table query if RPC is unavailable.
 
         Raises:
             SearchQueryTooShortError: If query < 2 characters
@@ -67,6 +70,72 @@ class NutritionService:
             raise SearchQueryTooShortError(query)
 
         try:
+            # ===================================================================
+            # PRIMARY METHOD: Use RPC function (bypasses PostgREST crashes)
+            # ===================================================================
+            try:
+                logger.info(
+                    "search_foods_rpc_starting",
+                    query=query,
+                    limit=limit,
+                    user_id=str(user_id) if user_id else None,
+                    method="rpc_search_foods_safe"
+                )
+
+                # Call PostgreSQL RPC function
+                rpc_response = supabase_service.client.rpc(
+                    "search_foods_safe",
+                    {
+                        "search_query": query,
+                        "result_limit": limit,
+                        "user_id_filter": str(user_id) if user_id else None
+                    }
+                ).execute()
+
+                # Check if RPC returned an error
+                if rpc_response.data and isinstance(rpc_response.data, dict):
+                    if "error" in rpc_response.data:
+                        logger.warning(
+                            "search_foods_rpc_error",
+                            query=query,
+                            error=rpc_response.data.get("error"),
+                            fallback="using_table_query"
+                        )
+                        # Fall through to fallback method
+                        raise Exception(f"RPC error: {rpc_response.data.get('error')}")
+
+                    # Success! Parse RPC response
+                    foods_data = rpc_response.data.get("foods", [])
+
+                    logger.info(
+                        "search_foods_rpc_success",
+                        query=query,
+                        results_count=len(foods_data),
+                        method="rpc_search_foods_safe"
+                    )
+
+                    # Convert RPC response to Food objects
+                    foods = []
+                    for food_dict in foods_data:
+                        servings_data = food_dict.pop("servings", [])
+                        food = Food(**food_dict)
+                        food.servings = [FoodServing(**s) for s in servings_data]
+                        foods.append(food)
+
+                    return foods[:limit]
+
+            except Exception as rpc_error:
+                # RPC failed, fall back to direct table query
+                logger.warning(
+                    "search_foods_rpc_failed",
+                    query=query,
+                    error=str(rpc_error),
+                    fallback="using_table_query"
+                )
+
+            # ===================================================================
+            # FALLBACK METHOD: Direct table query (original method)
+            # ===================================================================
             # Search public foods
             try:
                 # Enhanced logging for diagnostics
@@ -75,7 +144,8 @@ class NutritionService:
                     query=query,
                     limit=limit,
                     user_id=str(user_id) if user_id else None,
-                    has_user_id=user_id is not None
+                    has_user_id=user_id is not None,
+                    method="table_query_fallback"
                 )
 
                 public_query = (
