@@ -1,0 +1,29 @@
+# Testing Dependencies - Modern 2025 Stack
+# Install with: pip install -r tests/requirements.txt
+
+# Core Testing Framework
+pytest>=8.0.0              # Modern pytest with asyncio support
+pytest-asyncio>=0.24.0     # Async test support
+pytest-cov>=6.0.0          # Coverage reporting
+pytest-xdist>=3.5.0        # Parallel test execution
+
+# HTTP Testing
+httpx>=0.27.0              # Async HTTP client for API tests
+requests>=2.32.0           # Synchronous HTTP client (manual tests)
+
+# Test Data Generation
+factory-boy>=3.3.0         # Test data factories
+Faker>=33.0.0              # Realistic fake data generation
+
+# Database Testing (if using direct SQL)
+# asyncpg>=0.29.0          # PostgreSQL async driver (uncomment if needed)
+
+# Performance Testing (future)
+# locust>=2.20.0           # Load testing (uncomment when adding performance tests)
+
+# Contract Testing (future)
+# pact-python>=2.0.0       # API contract testing (uncomment when adding contract tests)
+
+# Code Quality
+pytest-clarity>=1.0.1      # Better test failure messages
+pytest-timeout>=2.2.0      # Prevent hanging tests

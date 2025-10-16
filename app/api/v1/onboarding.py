@@ -19,10 +19,95 @@ from pydantic import BaseModel, Field, field_validator, ValidationError
 from app.api.dependencies import get_current_user
 from app.config import settings
 from app.services.macro_calculator import calculate_targets, MacroTargets
+from app.services.onboarding_service import onboarding_service
 from app.services.supabase_service import supabase_service
 from app.utils.logger import log_event
 
 router = APIRouter()
+
+
+# ============================================================================
+# HELPER FUNCTIONS
+# ============================================================================
+
+def _extract_user_jwt(request: Request, user_id: str) -> Optional[str]:
+    """
+    Extract user JWT from Authorization header or cookies for RLS.
+
+    Args:
+        request: FastAPI request object
+        user_id: User ID for logging
+
+    Returns:
+        JWT token string or None if not found
+    """
+    # Try Authorization header first
+    auth_header = request.headers.get('authorization') or request.headers.get('Authorization')
+    if auth_header and auth_header.lower().startswith('bearer '):
+        user_jwt = auth_header.split(' ', 1)[1]
+        log_event(
+            "onboarding_auth_from_header",
+            user_id=user_id,
+            token_prefix=user_jwt[:20] if user_jwt else None
+        )
+        return user_jwt
+
+    # Fallback: derive JWT from cookies
+    cookie_header = request.headers.get('cookie') or request.headers.get('Cookie')
+    if cookie_header:
+        import re, urllib.parse
+
+        # Try backend's expected cookie name first
+        m = re.search(r'access_token=([^;]+)', cookie_header)
+        if m:
+            try:
+                user_jwt = urllib.parse.unquote(m.group(1))
+                log_event(
+                    "onboarding_auth_from_access_token_cookie",
+                    user_id=user_id,
+                    token_prefix=user_jwt[:20] if user_jwt else None
+                )
+                return user_jwt
+            except Exception as e:
+                log_event(
+                    "onboarding_cookie_decode_error",
+                    level="warning",
+                    user_id=user_id,
+                    error=str(e),
+                    cookie_name="access_token"
+                )
+                return m.group(1)
+
+        # Fallback to Supabase cookie name
+        m = re.search(r'sb-access-token=([^;]+)', cookie_header)
+        if m:
+            try:
+                user_jwt = urllib.parse.unquote(m.group(1))
+                log_event(
+                    "onboarding_auth_from_sb_cookie",
+                    user_id=user_id,
+                    token_prefix=user_jwt[:20] if user_jwt else None
+                )
+                return user_jwt
+            except Exception as e:
+                log_event(
+                    "onboarding_cookie_decode_error",
+                    level="warning",
+                    user_id=user_id,
+                    error=str(e),
+                    cookie_name="sb-access-token"
+                )
+                return m.group(1)
+
+    # Log if no JWT found
+    log_event(
+        "onboarding_no_jwt_found",
+        level="warning",
+        user_id=user_id,
+        has_auth_header=bool(auth_header),
+        has_cookie_header=bool(cookie_header)
+    )
+    return None
 
 
 # ============================================================================
@@ -207,213 +292,18 @@ async def complete_onboarding(
             timezone=data.timezone,
             content_type=content_type,
         )
-        # Step 1: Calculate macro targets
-        log_event(
-            "onboarding_macro_calculation_started",
-            user_id=str(user_id),
-            primary_goal=data.primary_goal,
-            activity_level=data.activity_level
-        )
-
-        # Derive age
-        used_age: int
-        if data.birth_date:
-            today = date.today()
-            used_age = int((today - data.birth_date).days // 365.25)
-        else:
-            used_age = int(data.age)  # validator ensures one present
-
-        targets = calculate_targets(
-            age=used_age,
-            sex=data.biological_sex,
-            height_cm=data.height_cm,
-            current_weight_kg=data.current_weight_kg,
-            goal_weight_kg=data.goal_weight_kg,
-            activity_level=data.activity_level,
-            primary_goal=data.primary_goal,
-            experience_level=data.experience_level
-        )
-
-        log_event(
-            "onboarding_targets_calculated",
-            user_id=user['id'],
-            daily_calories=targets.daily_calories,
-            bmr=targets.bmr,
-            tdee=targets.tdee,
-            protein_g=targets.daily_protein_g,
-            carbs_g=targets.daily_carbs_g,
-            fat_g=targets.daily_fat_g,
-        )
-
-        log_event(
-            "onboarding_macro_calculation_completed",
-            user_id=str(user_id),
-            bmr=targets.bmr,
-            tdee=targets.tdee,
-            calories=targets.daily_calories,
-            protein=targets.daily_protein_g
-        )
-
-        # Step 2: Prepare profile update
-        profile_update = {
-            # Physical stats
-            **({'birth_date': data.birth_date.isoformat()} if data.birth_date else {}),
-            **({'age': data.age} if data.age is not None else {}),
-            'biological_sex': data.biological_sex,
-            'height_cm': data.height_cm,
-            'current_weight_kg': data.current_weight_kg,
-            'goal_weight_kg': data.goal_weight_kg,
-
-            # Goals
-            'primary_goal': data.primary_goal,
-            'experience_level': data.experience_level,
-
-            # Activity & Lifestyle
-            'activity_level': data.activity_level,
-            'workout_frequency': data.workout_frequency,
-            'sleep_hours': data.sleep_hours,
-            'stress_level': data.stress_level,
-
-            # Dietary
-            'dietary_preference': data.dietary_preference,
-            'food_allergies': data.food_allergies,
-            'foods_to_avoid': data.foods_to_avoid,
-            'meals_per_day': data.meals_per_day,
-            'cooks_regularly': data.cooks_regularly,
-
-            # Calculated targets
-            'estimated_tdee': targets.tdee,
-            'daily_calorie_goal': targets.daily_calories,
-            'daily_protein_goal': targets.daily_protein_g,
-            'daily_carbs_goal': targets.daily_carbs_g,
-            'daily_fat_goal': targets.daily_fat_g,
-
-            # Preferences
-            'unit_system': data.unit_system,
-            'timezone': data.timezone,
-
-            # Onboarding status
-            'onboarding_completed': True,
-            'onboarding_completed_at': datetime.utcnow().isoformat(),
-
-            # Macro metadata
-            'macros_last_calculated_at': datetime.utcnow().isoformat(),
-            'macros_calculation_reason': 'initial_onboarding',
-        }
 
         # Extract user JWT for RLS-protected writes
-        auth_header = request.headers.get('authorization') or request.headers.get('Authorization')
-        user_jwt = None
-        if auth_header and auth_header.lower().startswith('bearer '):
-            user_jwt = auth_header.split(' ', 1)[1]
-            log_event(
-                "onboarding_auth_from_header",
-                user_id=user['id'],
-                token_prefix=user_jwt[:20] if user_jwt else None
-            )
-        # Fallback: derive JWT from cookies if Authorization missing
-        if not user_jwt:
-            cookie_header = request.headers.get('cookie') or request.headers.get('Cookie')
-            if cookie_header:
-                import re, urllib.parse
-                # Try backend's expected cookie name first
-                m = re.search(r'access_token=([^;]+)', cookie_header)
-                if m:
-                    try:
-                        user_jwt = urllib.parse.unquote(m.group(1))
-                        log_event(
-                            "onboarding_auth_from_access_token_cookie",
-                            user_id=user['id'],
-                            token_prefix=user_jwt[:20] if user_jwt else None
-                        )
-                    except Exception as e:
-                        log_event(
-                            "onboarding_cookie_decode_error",
-                            level="warning",
-                            user_id=user['id'],
-                            error=str(e),
-                            cookie_name="access_token"
-                        )
-                        user_jwt = m.group(1)
-                # Fallback to Supabase cookie name
-                if not user_jwt:
-                    m = re.search(r'sb-access-token=([^;]+)', cookie_header)
-                    if m:
-                        try:
-                            user_jwt = urllib.parse.unquote(m.group(1))
-                            log_event(
-                                "onboarding_auth_from_sb_cookie",
-                                user_id=user['id'],
-                                token_prefix=user_jwt[:20] if user_jwt else None
-                            )
-                        except Exception as e:
-                            log_event(
-                                "onboarding_cookie_decode_error",
-                                level="warning",
-                                user_id=user['id'],
-                                error=str(e),
-                                cookie_name="sb-access-token"
-                            )
-                            user_jwt = m.group(1)
+        user_jwt = _extract_user_jwt(request, user['id'])
 
-        # Log if no JWT found at all
-        if not user_jwt:
-            log_event(
-                "onboarding_no_jwt_found",
-                level="warning",
-                user_id=user['id'],
-                has_auth_header=bool(auth_header),
-                has_cookie_header=bool(request.headers.get('cookie'))
-            )
-
-        # Step 3: Update profile (RLS context)
-        updated_profile = await supabase_service.update_profile(user_id, profile_update, user_token=user_jwt)
-
-        log_event(
-            "onboarding_profile_updated",
-            user_id=str(user_id),
-            updated_fields=list(profile_update.keys()),
-            onboarding_completed=True,
+        # Complete onboarding using service
+        updated_profile, targets = await onboarding_service.complete_onboarding(
+            user_id=user_id,
+            onboarding_data=data.model_dump(),
+            user_token=user_jwt
         )
 
-        # Log initial body metrics (weight and height) for historical tracking
-        try:
-            await supabase_service.create_body_metric({
-                'user_id': str(user_id),
-                'recorded_at': datetime.utcnow().isoformat(),
-                'weight_kg': data.current_weight_kg,
-                'height_cm': data.height_cm,
-                'notes': 'Initial metrics from onboarding'
-            }, user_token=user_jwt)
-            log_event(
-                "onboarding_body_metrics_seeded",
-                user_id=str(user_id),
-                weight_kg=data.current_weight_kg,
-                height_cm=data.height_cm,
-            )
-        except Exception as e:
-            log_event(
-                "onboarding_body_metrics_seed_failed",
-                level="warn",
-                user_id=str(user_id),
-                error=str(e),
-            )
-
-        if not updated_profile:
-            log_event("onboarding_profile_update_failed", user_id=str(user_id))
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to update profile"
-            )
-
-        log_event(
-            "onboarding_completed",
-            user_id=str(user_id),
-            primary_goal=data.primary_goal,
-            daily_calories=targets.daily_calories
-        )
-
-        # Step 4: Return response
+        # Return response
         response = OnboardingResponse(
             profile=updated_profile,
             targets=targets,

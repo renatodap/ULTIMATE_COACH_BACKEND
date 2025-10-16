@@ -132,7 +132,19 @@ class MealItemBase(BaseModel):
     """Base meal item data for creation."""
     food_id: UUID
     quantity: Decimal = Field(gt=0, description="Amount of servings (e.g., 2)")
-    serving_id: UUID = Field(description="Which serving size to use")
+    serving_id: Optional[UUID] = Field(None, description="Which serving size to use (optional for grams-based logging)")
+
+    # Calculated nutrition values (frontend pre-calculates for consistency)
+    grams: Decimal = Field(gt=0, description="Total grams")
+    calories: Decimal = Field(ge=0, description="Calculated calories")
+    protein_g: Decimal = Field(ge=0, description="Calculated protein")
+    carbs_g: Decimal = Field(ge=0, description="Calculated carbs")
+    fat_g: Decimal = Field(ge=0, description="Calculated fat")
+
+    # Display info for UI
+    display_unit: str = Field(description="Unit for display (g, scoop, etc)")
+    display_label: Optional[str] = Field(None, description="Optional label (medium, large, etc)")
+    display_order: Optional[int] = Field(None, description="Order in meal")
 
 
 class MealItem(BaseModel):

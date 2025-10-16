@@ -177,8 +177,8 @@ async def update_my_profile(
     """
     try:
         import json
-        from app.services.macro_calculator import calculate_targets
         from datetime import datetime
+        from app.services.profile_service import profile_service
 
         user_id = UUID(user["id"])
 
@@ -264,52 +264,16 @@ async def update_my_profile(
             )
 
         # Check if we need to recalculate macros
-        macro_affecting_fields = {'age', 'height_cm', 'current_weight_kg', 'goal_weight_kg',
-                                   'primary_goal', 'activity_level', 'experience_level'}
-        needs_macro_recalc = any(field in update_data for field in macro_affecting_fields)
+        needs_macro_recalc = profile_service.should_recalculate_macros(update_data)
 
         if needs_macro_recalc:
-            # Get values (updated or current)
-            calc_age = update_data.get('age', current_profile.get('age'))
-            calc_sex = current_profile.get('biological_sex')
-            calc_height = update_data.get('height_cm', current_profile.get('height_cm'))
-            calc_current_weight = update_data.get('current_weight_kg', current_profile.get('current_weight_kg'))
-            calc_goal_weight = update_data.get('goal_weight_kg', current_profile.get('goal_weight_kg'))
-            calc_activity = update_data.get('activity_level', current_profile.get('activity_level'))
-            calc_goal = update_data.get('primary_goal', current_profile.get('primary_goal'))
-            calc_experience = update_data.get('experience_level', current_profile.get('experience_level'))
-
-            # Validate required fields
-            if not all([calc_age, calc_sex, calc_height, calc_current_weight,
-                       calc_goal_weight, calc_activity, calc_goal]):
+            try:
+                update_data = profile_service.recalculate_macros(current_profile, update_data)
+            except ValueError as e:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Missing required fields for macro calculation",
+                    detail=str(e),
                 )
-
-            # Recalculate macros
-            targets = calculate_targets(
-                age=calc_age,
-                sex=calc_sex,
-                height_cm=calc_height,
-                current_weight_kg=calc_current_weight,
-                goal_weight_kg=calc_goal_weight,
-                activity_level=calc_activity,
-                primary_goal=calc_goal,
-                experience_level=calc_experience
-            )
-
-            # Add macro targets to update
-            update_data["estimated_tdee"] = targets.tdee
-            update_data["daily_calorie_goal"] = targets.daily_calories
-            update_data["daily_protein_goal"] = targets.daily_protein_g
-            update_data["daily_carbs_goal"] = targets.daily_carbs_g
-            update_data["daily_fat_goal"] = targets.daily_fat_g
-            update_data["macros_last_calculated_at"] = datetime.utcnow().isoformat()
-            update_data["macros_calculation_reason"] = "profile_update"
-
-            logger.info("macros_recalculated", user_id=str(user_id),
-                       calories=targets.daily_calories, protein=targets.daily_protein_g)
 
         # Update profile
         updated_profile = await supabase_service.update_profile(user_id, update_data)
