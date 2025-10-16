@@ -375,14 +375,33 @@ async def root():
 
 
 # Import and include routers
-from app.api.v1 import health, auth, users, onboarding, foods, meals, activities, quick_meals, templates, body_metrics, dashboard, exercise_sets, coach, wearables, planning, consultation
+from app.api.v1 import health, auth, users, onboarding, foods, meals, activities, quick_meals, templates, body_metrics, dashboard, exercise_sets, coach, wearables, planning  # consultation disabled for MVP
 from app.api.v1.planlogs import router as planlogs_router
 
 app.include_router(health.router, prefix="/api/v1", tags=["Health"])
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentication"])
 app.include_router(users.router, prefix="/api/v1/users", tags=["Users"])
 app.include_router(onboarding.router, prefix="/api/v1/onboarding", tags=["Onboarding"])
-app.include_router(consultation.router, prefix="/api/v1", tags=["Consultation"])
+
+# ========================================================================
+# CONSULTATION AI - DISABLED FOR MVP
+# ========================================================================
+# The Consultation AI is a premium onboarding feature with 15 tools for
+# structured data collection (training modalities, exercises, meal timing,
+# goals, challenges, etc.). It's currently disabled because:
+#   - Frontend UI is incomplete (placeholder only)
+#   - Premium feature (requires consultation keys)
+#   - Not part of core MVP (activities + nutrition tracking)
+#   - Reduces tool complexity from 27 → 12 tools (56% reduction)
+#
+# To re-enable:
+#   1. Uncomment the import above (consultation)
+#   2. Uncomment the router include below
+#   3. Complete frontend UI at /dashboard/consultation
+#   4. Test consultation key redemption flow
+#
+# app.include_router(consultation.router, prefix="/api/v1", tags=["Consultation"])
+# ========================================================================
 app.include_router(dashboard.router, prefix="/api/v1", tags=["Dashboard"])
 app.include_router(foods.router, prefix="/api/v1", tags=["Nutrition - Foods"])
 app.include_router(meals.router, prefix="/api/v1", tags=["Nutrition - Meals"])

@@ -344,13 +344,27 @@ Premium feature that conducts AI-powered fitness consultations via natural conve
 1. **`consultation_ai_service.py`** - 1000+ lines of Claude integration
 2. **Gated by one-time use keys** - Cost control and quality control
 3. **7-section system prompts** - Training, meals, goals, challenges, etc.
-4. **Database tool calling** - AI searches and inserts user data
+4. **Database tool calling** - AI searches and inserts user data (15 tools)
 5. **Memory system** - Prevents duplicate questions
 
 ### **Status**
 - ✅ Backend complete (service ready)
 - ⚠️ Frontend incomplete (placeholder API endpoints)
-- ⚠️ Currently hidden from users
+- ⚠️ **DISABLED FOR MVP** (endpoints commented out in `main.py`)
+
+### **Why Disabled?**
+To reduce complexity for MVP launch:
+- Frontend UI is incomplete (placeholder only)
+- Premium feature (requires consultation keys)
+- Not part of core MVP (activities + nutrition tracking)
+- Reduces tool count from 27 → 12 tools (56% reduction)
+- Unified Coach (12 tools) remains active for daily coaching
+
+### **To Re-enable:**
+1. Uncomment consultation import in `app/main.py` line 378
+2. Uncomment router include in `app/main.py` line 403
+3. Complete frontend UI at `/dashboard/consultation`
+4. Test consultation key redemption flow
 
 ### **Documentation**
 - `CONSULTATION_KEYS_GUIDE.md` - Key system explanation
