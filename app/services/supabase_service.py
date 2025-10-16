@@ -172,13 +172,12 @@ class SupabaseService:
                 return response.data[0]
 
             # No existing profile, insert new
+            # LAYER 2 FIX: Use service role (not user token) for INSERT
+            # This bypasses RLS and allows profile creation even if INSERT policy doesn't exist
+            # Service role has full permissions and is safe here (we already validated user_id)
             data = {"id": str(user_id), **updates}
-            logger.warning(f"Profile not found for user {user_id}, creating new profile")
-            if user_token:
-                self.client.postgrest.auth(user_token)
+            logger.warning(f"Profile not found for user {user_id}, creating new profile via service role")
             created = self.client.table("profiles").insert(data).execute()
-            if user_token:
-                self.client.postgrest.auth(None)
             if created.data and len(created.data) > 0:
                 logger.info(f"Successfully created profile for user {user_id}")
                 return created.data[0]

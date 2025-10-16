@@ -47,8 +47,15 @@ class AuthService:
         """
         try:
             # Create user in Supabase Auth, passing full_name as metadata
-            # IMPORTANT: Migration 038 creates a trigger (handle_new_user) that automatically
-            # creates a profile row in the profiles table when a user signs up
+            #
+            # PROFILE CREATION - 3 LAYERS OF DEFENSE:
+            # Layer 1 (Proactive): Migration 038 adds trigger (handle_new_user) that auto-creates
+            #                      profile on signup. Best practice, cleanest solution.
+            # Layer 2 (Reactive):  update_profile() uses service role for INSERT, bypassing RLS.
+            #                      Works even if migration not applied or trigger fails.
+            # Layer 3 (Emergency): get_user_from_token() creates profile if missing on any auth.
+            #                      Self-healing for existing users who signed up before fixes.
+            #
             signup_options: dict[str, Any] = {
                 "email": email,
                 "password": password,
@@ -209,14 +216,38 @@ class AuthService:
             user_id = UUID(user_response.user.id)
             profile = await supabase_service.get_profile(user_id)
 
+            # LAYER 3 FIX: Emergency fallback - create profile if missing
+            # This handles existing users who signed up before trigger was added
+            # Self-healing on any authenticated request
             if not profile:
                 logger.warning(
-                    f"User {user_id} authenticated but profile not found",
+                    f"User {user_id} authenticated but profile not found - creating emergency profile",
                     extra={
                         "user_id": str(user_id),
                         "email": user_response.user.email
                     }
                 )
+                try:
+                    # Get full_name from user metadata if available
+                    full_name = user_response.user.user_metadata.get("full_name") if user_response.user.user_metadata else None
+
+                    # Create profile using create_profile (uses service role)
+                    profile = await supabase_service.create_profile(user_id, {
+                        "full_name": full_name,
+                        "onboarding_completed": False,
+                    })
+                    logger.info(f"Emergency profile created successfully for user {user_id}")
+                except Exception as e:
+                    logger.error(
+                        f"Failed to create emergency profile for user {user_id}",
+                        extra={
+                            "error": str(e),
+                            "error_type": type(e).__name__
+                        },
+                        exc_info=True
+                    )
+                    # Profile will be None, but don't fail authentication
+                    # Let the user continue and we'll try again on next request
 
             return {
                 "id": str(user_id),
