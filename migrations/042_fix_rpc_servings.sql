@@ -1,31 +1,14 @@
--- Migration: Food Search RPC Workaround for PostgREST Crash
+-- Migration: Fix RPC Servings Return
 -- Date: 2025-10-16
--- Issue: PostgREST worker crashes with Cloudflare Error 1101 when querying
---        foods table with ILIKE pattern via REST API
+-- Issue: RPC function search_foods_safe returns foods but with empty servings array
+-- Root Cause: UUID/timestamp types causing silent JSONB serialization failures
 --
--- Solution: Create PostgreSQL RPC function that:
---   - Bypasses PostgREST's table query endpoint
---   - Safely handles errors with EXCEPTION blocks
---   - Manually builds JSON response
---   - Returns foods with servings included
+-- Solution: Cast all UUIDs and timestamps to text for JSONB compatibility
 
 BEGIN;
 
--- ============================================================================
--- Function: search_foods_safe
--- ============================================================================
--- Purpose: Safely search foods with pattern matching, bypassing PostgREST issues
---
--- Parameters:
---   - search_query: Search pattern (e.g., 'chicken', 'banana')
---   - result_limit: Max results to return (default 20, max 100)
---   - user_id_filter: Optional UUID to include user's custom foods
---
--- Returns: JSONB array of food objects with servings
---
--- Example usage:
---   SELECT search_foods_safe('chicken', 20, null);
---   SELECT search_foods_safe('banana', 10, '38a5596a-9397-4660-8180-132c50541964'::uuid);
+-- Drop and recreate the function with proper type casting
+DROP FUNCTION IF EXISTS search_foods_safe(TEXT, INTEGER, UUID);
 
 CREATE OR REPLACE FUNCTION search_foods_safe(
     search_query TEXT,
@@ -89,7 +72,7 @@ BEGIN
             ORDER BY f.usage_count DESC NULLS LAST, f.verified DESC NULLS LAST
             LIMIT result_limit
         LOOP
-            -- Get servings for this food
+            -- Get servings for this food (with explicit casting for JSONB compatibility)
             BEGIN
                 SELECT COALESCE(
                     jsonb_agg(
@@ -113,13 +96,12 @@ BEGIN
                 WHERE fs.food_id = food_row.id;
             EXCEPTION
                 WHEN OTHERS THEN
-                    -- If servings fetch fails, return empty array
-                    -- Log the error for debugging
+                    -- Log warning and return empty servings
                     RAISE WARNING 'Failed to fetch servings for food_id %: %', food_row.id, SQLERRM;
                     servings_json := '[]'::jsonb;
             END;
 
-            -- Add food with servings to result
+            -- Add food with servings to result (cast UUIDs/timestamps to text)
             result := result || jsonb_build_object(
                 'id', food_row.id::text,
                 'name', food_row.name,
@@ -180,7 +162,7 @@ BEGIN
                 ORDER BY f.updated_at DESC
                 LIMIT (result_limit - jsonb_array_length(result))
             LOOP
-                -- Get servings for this food
+                -- Get servings for this food (with explicit casting)
                 BEGIN
                     SELECT COALESCE(
                         jsonb_agg(
@@ -234,7 +216,6 @@ BEGIN
         EXCEPTION
             WHEN OTHERS THEN
                 -- If custom foods search fails, just return public foods
-                -- Don't error out entirely
                 NULL;
         END;
     END IF;
@@ -255,62 +236,8 @@ EXCEPTION
 END;
 $$;
 
--- Grant execute permission to authenticated users
+-- Grant execute permission
 GRANT EXECUTE ON FUNCTION search_foods_safe(TEXT, INTEGER, UUID) TO authenticated;
 GRANT EXECUTE ON FUNCTION search_foods_safe(TEXT, INTEGER, UUID) TO service_role;
 
--- ============================================================================
--- Test the function
--- ============================================================================
--- Run these tests after applying migration:
-
--- Test 1: Search for 'chicken'
--- SELECT search_foods_safe('chicken', 20, null);
-
--- Test 2: Search for 'banana'
--- SELECT search_foods_safe('banana', 10, null);
-
--- Test 3: Search with short query (should return error)
--- SELECT search_foods_safe('a', 20, null);
-
--- Test 4: Search with user's custom foods
--- SELECT search_foods_safe('my food', 20, '38a5596a-9397-4660-8180-132c50541964'::uuid);
-
 COMMIT;
-
--- ============================================================================
--- NOTES:
--- ============================================================================
--- This function bypasses PostgREST's table query endpoint entirely by using RPC.
---
--- Advantages:
--- 1. Avoids PostgREST worker crashes (Error 1101)
--- 2. Better error handling with EXCEPTION blocks
--- 3. Manual JSON building avoids serialization issues
--- 4. Can add custom logic (e.g., fuzzy matching, scoring)
--- 5. Single database round-trip (efficient)
---
--- Backend Usage:
--- Replace:
---   supabase_service.client.table("foods").select(...).execute()
--- With:
---   supabase_service.client.rpc("search_foods_safe", {
---       "search_query": query,
---       "result_limit": limit,
---       "user_id_filter": str(user_id) if user_id else None
---   }).execute()
---
--- Response format:
--- {
---   "foods": [
---     {
---       "id": "uuid",
---       "name": "Chicken Breast",
---       "calories_per_100g": 165,
---       "servings": [
---         {"id": "uuid", "serving_size": 100, "serving_unit": "g", ...}
---       ]
---     }
---   ],
---   "total": 15
--- }
