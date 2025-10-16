@@ -475,7 +475,12 @@ class SupabaseService:
             if start_date:
                 query = query.gte("start_time", start_date)
             if end_date:
-                query = query.lte("start_time", end_date)
+                # Add 1 day to end_date to include activities from the entire day
+                # (end_date is YYYY-MM-DD, but start_time is a full timestamp)
+                from datetime import datetime, timedelta
+                end_date_dt = datetime.fromisoformat(end_date)
+                next_day = (end_date_dt + timedelta(days=1)).date().isoformat()
+                query = query.lt("start_time", next_day)
 
             response = query.execute()
             # Map database fields to API fields
