@@ -115,14 +115,10 @@ async def search_foods(
             foods_response = (
                 supabase.table("foods")
                 .select("*, servings:food_servings(*)")
-                .or_(
-                    f"name.ilike.%{query}%,"
-                    f"brand_name.ilike.%{query}%,"
-                    f"name_pt.ilike.%{query}%,"
-                    f"brand_name_pt.ilike.%{query}%"
-                )
-                .or_(f"is_public.eq.true,created_by.eq.{user_id}")  # Public or user's own
+                .eq("is_public", True)  # Only public foods for now
+                .ilike("name", f"%{query}%")  # Simple name search
                 .order("usage_count", desc=True)  # Popular foods first
+                .order("verified", desc=True)  # Verified foods second
                 .limit(limit)
                 .execute()
             )
