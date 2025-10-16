@@ -270,13 +270,13 @@ class TrainingGenerator:
         """Generate individual workout sessions based on split type."""
 
         if split_type == TrainingSplit.FULL_BODY:
-            return self._generate_full_body(sessions_per_week, volume_targets, primary_goal)
+            return self._generate_full_body(sessions_per_week, volume_targets, primary_goal, medical_restrictions)
         elif split_type == TrainingSplit.UPPER_LOWER:
-            return self._generate_upper_lower(sessions_per_week, volume_targets, primary_goal)
+            return self._generate_upper_lower(sessions_per_week, volume_targets, primary_goal, medical_restrictions)
         elif split_type == TrainingSplit.PUSH_PULL_LEGS:
-            return self._generate_ppl(volume_targets, primary_goal)
+            return self._generate_ppl(volume_targets, primary_goal, medical_restrictions)
         elif split_type == TrainingSplit.UPPER_LOWER_6X:
-            return self._generate_upper_lower(6, volume_targets, primary_goal)
+            return self._generate_upper_lower(6, volume_targets, primary_goal, medical_restrictions)
 
         return []
 
@@ -285,6 +285,7 @@ class TrainingGenerator:
         sessions_per_week: int,
         volume_targets: Dict[str, int],
         primary_goal: IntensityZone,
+        medical_restrictions: List[str],
     ) -> List[WorkoutSession]:
         """Generate full body training sessions."""
         sessions = []
@@ -301,7 +302,9 @@ class TrainingGenerator:
             session_name="Full Body A",
             exercises=[
                 self._create_exercise(
-                    "Barbell Squat", sets_per_muscle_per_session["quads"], primary_goal
+                    self._maybe_substitute_exercise("Barbell Squat", medical_restrictions),
+                    sets_per_muscle_per_session["quads"],
+                    primary_goal,
                 ),
                 self._create_exercise(
                     "Barbell Bench Press", sets_per_muscle_per_session["chest"], primary_goal
@@ -310,7 +313,7 @@ class TrainingGenerator:
                     "Barbell Rows", sets_per_muscle_per_session["back"], primary_goal
                 ),
                 self._create_exercise(
-                    "Overhead Press",
+                    self._maybe_substitute_exercise("Overhead Press", medical_restrictions),
                     sets_per_muscle_per_session["shoulders"] // 2,
                     primary_goal,
                 ),
@@ -335,7 +338,7 @@ class TrainingGenerator:
                 session_name="Full Body B",
                 exercises=[
                     self._create_exercise(
-                        "Romanian Deadlift",
+                        self._maybe_substitute_exercise("Romanian Deadlift", medical_restrictions),
                         sets_per_muscle_per_session["hamstrings"],
                         primary_goal,
                     ),
@@ -375,7 +378,9 @@ class TrainingGenerator:
                 session_name="Full Body C",
                 exercises=[
                     self._create_exercise(
-                        "Leg Press", sets_per_muscle_per_session["quads"], primary_goal
+                        self._maybe_substitute_exercise("Leg Press", medical_restrictions),
+                        sets_per_muscle_per_session["quads"],
+                        primary_goal,
                     ),
                     self._create_exercise(
                         "Push-ups", sets_per_muscle_per_session["chest"], primary_goal
@@ -404,6 +409,7 @@ class TrainingGenerator:
         sessions_per_week: int,
         volume_targets: Dict[str, int],
         primary_goal: IntensityZone,
+        medical_restrictions: List[str],
     ) -> List[WorkoutSession]:
         """Generate upper/lower split sessions."""
         sessions = []
@@ -417,7 +423,7 @@ class TrainingGenerator:
             exercises=[
                 self._create_exercise("Barbell Bench Press", 4, primary_goal),
                 self._create_exercise("Barbell Rows", 4, primary_goal),
-                self._create_exercise("Overhead Press", 3, primary_goal),
+                self._create_exercise(self._maybe_substitute_exercise("Overhead Press", medical_restrictions), 3, primary_goal),
                 self._create_exercise("Lat Pulldowns", 3, primary_goal),
                 self._create_exercise("Lateral Raises", 3, primary_goal),
                 self._create_exercise("Barbell Curls", 3, primary_goal),
@@ -433,9 +439,9 @@ class TrainingGenerator:
             session_number=2,
             session_name="Lower A",
             exercises=[
-                self._create_exercise("Barbell Squat", 4, primary_goal),
-                self._create_exercise("Romanian Deadlift", 4, primary_goal),
-                self._create_exercise("Leg Press", 3, primary_goal),
+                self._create_exercise(self._maybe_substitute_exercise("Barbell Squat", medical_restrictions), 4, primary_goal),
+                self._create_exercise(self._maybe_substitute_exercise("Romanian Deadlift", medical_restrictions), 4, primary_goal),
+                self._create_exercise(self._maybe_substitute_exercise("Leg Press", medical_restrictions), 3, primary_goal),
                 self._create_exercise("Leg Curls", 3, primary_goal),
                 self._create_exercise("Hip Thrusts", 3, primary_goal),
                 self._create_exercise("Calf Raises", 4, primary_goal),
@@ -470,7 +476,7 @@ class TrainingGenerator:
                 session_name="Lower B",
                 exercises=[
                     self._create_exercise("Bulgarian Split Squats", 4, primary_goal),
-                    self._create_exercise("Leg Press", 4, primary_goal),
+                    self._create_exercise(self._maybe_substitute_exercise("Leg Press", medical_restrictions), 4, primary_goal),
                     self._create_exercise("Leg Extensions", 3, primary_goal),
                     self._create_exercise("Leg Curls", 4, primary_goal),
                     self._create_exercise("Hip Thrusts", 3, primary_goal),
@@ -484,7 +490,7 @@ class TrainingGenerator:
         return sessions
 
     def _generate_ppl(
-        self, volume_targets: Dict[str, int], primary_goal: IntensityZone
+        self, volume_targets: Dict[str, int], primary_goal: IntensityZone, medical_restrictions: List[str]
     ) -> List[WorkoutSession]:
         """Generate push/pull/legs split."""
         sessions = []
@@ -495,7 +501,7 @@ class TrainingGenerator:
             session_name="Push",
             exercises=[
                 self._create_exercise("Barbell Bench Press", 4, primary_goal),
-                self._create_exercise("Overhead Press", 4, primary_goal),
+                self._create_exercise(self._maybe_substitute_exercise("Overhead Press", medical_restrictions), 4, primary_goal),
                 self._create_exercise("Incline Dumbbell Press", 3, primary_goal),
                 self._create_exercise("Lateral Raises", 4, primary_goal),
                 self._create_exercise("Cable Flyes", 3, primary_goal),
@@ -530,9 +536,9 @@ class TrainingGenerator:
             session_number=3,
             session_name="Legs",
             exercises=[
-                self._create_exercise("Barbell Squat", 5, primary_goal),
-                self._create_exercise("Romanian Deadlift", 4, primary_goal),
-                self._create_exercise("Leg Press", 4, primary_goal),
+                self._create_exercise(self._maybe_substitute_exercise("Barbell Squat", medical_restrictions), 5, primary_goal),
+                self._create_exercise(self._maybe_substitute_exercise("Romanian Deadlift", medical_restrictions), 4, primary_goal),
+                self._create_exercise(self._maybe_substitute_exercise("Leg Press", medical_restrictions), 4, primary_goal),
                 self._create_exercise("Leg Curls", 4, primary_goal),
                 self._create_exercise("Hip Thrusts", 4, primary_goal),
                 self._create_exercise("Leg Extensions", 3, primary_goal),
@@ -550,7 +556,7 @@ class TrainingGenerator:
             session_name="Push (Variation)",
             exercises=[
                 self._create_exercise("Incline Dumbbell Press", 4, primary_goal),
-                self._create_exercise("Overhead Press", 4, primary_goal),
+                self._create_exercise(self._maybe_substitute_exercise("Overhead Press", medical_restrictions), 4, primary_goal),
                 self._create_exercise("Cable Flyes", 4, primary_goal),
                 self._create_exercise("Lateral Raises", 4, primary_goal),
                 self._create_exercise("Rear Delt Flyes", 3, primary_goal),
@@ -583,7 +589,7 @@ class TrainingGenerator:
             session_number=6,
             session_name="Legs (Variation)",
             exercises=[
-                self._create_exercise("Leg Press", 5, primary_goal),
+                self._create_exercise(self._maybe_substitute_exercise("Leg Press", medical_restrictions), 5, primary_goal),
                 self._create_exercise("Bulgarian Split Squats", 4, primary_goal),
                 self._create_exercise("Romanian Deadlift", 4, primary_goal),
                 self._create_exercise("Leg Extensions", 4, primary_goal),
@@ -597,6 +603,32 @@ class TrainingGenerator:
         sessions.append(legs2)
 
         return sessions
+
+    def _maybe_substitute_exercise(self, exercise_name: str, medical_restrictions: List[str]) -> str:
+        """Choose a safer alternative for common restrictions, optionally ranked by AI."""
+        restrictions = [r.lower() for r in (medical_restrictions or [])]
+        candidates: List[str] = []
+        context = {"exercise": exercise_name, "restrictions": restrictions}
+
+        if exercise_name == "Barbell Squat" and any("knee" in r for r in restrictions):
+            candidates = ["Leg Press", "Bulgarian Split Squats", "Hip Thrusts"]
+        elif exercise_name == "Romanian Deadlift" and any("back" in r for r in restrictions):
+            candidates = ["Hip Thrusts", "Leg Curls", "Leg Press"]
+        elif exercise_name == "Overhead Press" and any(("overhead" in r) or ("shoulder" in r) for r in restrictions):
+            candidates = ["Lateral Raises", "Rear Delt Flyes", "Incline Dumbbell Press"]
+        elif exercise_name == "Leg Press" and any("hip" in r for r in restrictions):
+            candidates = ["Bulgarian Split Squats", "Hip Thrusts", "Leg Extensions"]
+
+        if not candidates:
+            return exercise_name
+
+        try:
+            from services.ai.personalization import rank_exercise_substitute
+
+            best = rank_exercise_substitute(exercise_name, candidates, context)
+            return best or candidates[0]
+        except Exception:
+            return candidates[0]
 
     def _create_exercise(
         self, exercise_name: str, sets: int, primary_goal: IntensityZone

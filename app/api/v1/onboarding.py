@@ -306,6 +306,17 @@ async def complete_onboarding(
         user_jwt = None
         if auth_header and auth_header.lower().startswith('bearer '):
             user_jwt = auth_header.split(' ', 1)[1]
+        # Fallback: derive JWT from Supabase auth cookies if Authorization missing
+        if not user_jwt:
+            cookie_header = request.headers.get('cookie') or request.headers.get('Cookie')
+            if cookie_header:
+                import re, urllib.parse
+                m = re.search(r'sb-access-token=([^;]+)', cookie_header)
+                if m:
+                    try:
+                        user_jwt = urllib.parse.unquote(m.group(1))
+                    except Exception:
+                        user_jwt = m.group(1)
 
         # Step 3: Update profile (RLS context)
         updated_profile = await supabase_service.update_profile(user_id, profile_update, user_token=user_jwt)

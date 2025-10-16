@@ -34,6 +34,8 @@ from services.program_generator.modality_planner import (
     FacilityAccess as PlannerFacilityAccess,
     TimeWindow as PlannerTimeWindow,
 )
+from services.ai.personalization import maybe_infer_primary_goal
+from config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -313,6 +315,15 @@ class ConsultationAdapter:
         
         if not improvement_goals:
             warnings.append("No goals specified - defaulting to MAINTENANCE")
+            # Try AI inference if enabled
+            inferred, reason = maybe_infer_primary_goal({
+                "improvement_goals": [],
+                "training_modalities": [m.model_dump() for m in training_modalities],
+            })
+            if inferred is not None:
+                if reason:
+                    warnings.append(f"AI inferred primary goal: {inferred.value} ({reason})")
+                return inferred, warnings
             return Goal.MAINTENANCE, warnings
         
         # Find highest priority goal
@@ -345,7 +356,20 @@ class ConsultationAdapter:
             warnings.append(f"Inferred RECOMP from goal description")
             return Goal.RECOMP, warnings
         
-        # Default to maintenance if unclear
+        # If unclear, optionally query AI
+        settings = get_settings()
+        if settings.ENABLE_LLM_PERSONALIZATION:
+            inferred, reason = maybe_infer_primary_goal({
+                "top_goal": top_goal.model_dump(),
+                "all_goals": [g.model_dump() for g in improvement_goals],
+                "training_modalities": [m.model_dump() for m in training_modalities],
+            })
+            if inferred is not None:
+                if reason:
+                    warnings.append(f"AI inferred primary goal: {inferred.value} ({reason})")
+                return inferred, warnings
+
+        # Default to maintenance if still unclear
         warnings.append(
             f"Could not map goal type '{top_goal.goal_type}' - defaulting to MAINTENANCE"
         )

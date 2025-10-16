@@ -8,6 +8,11 @@ import os
 from typing import Optional
 from pydantic_settings import BaseSettings
 from pydantic import Field, field_validator
+try:
+    # Pydantic v2 recommended config
+    from pydantic_settings import SettingsConfigDict
+except Exception:  # pragma: no cover
+    SettingsConfigDict = None  # type: ignore
 
 
 class Settings(BaseSettings):
@@ -65,6 +70,14 @@ class Settings(BaseSettings):
     ENABLE_WEARABLE_SYNC: bool = Field(default=False)
     ENABLE_SENTIMENT_ANALYSIS: bool = Field(default=True)
     ENABLE_CONFIDENCE_TRACKING: bool = Field(default=True)
+
+    # LLM Personalization (cost-controlled)
+    ENABLE_LLM_PERSONALIZATION: bool = Field(default=False)
+    LLM_PROVIDER: str = Field(default="groq")
+    LLM_MAX_TOKENS_PER_CALL: int = Field(default=128, ge=16, le=2048)
+    LLM_CACHE_ENABLED: bool = Field(default=True)
+    GROQ_MODEL: str = Field(default="llama-3.1-8b-instant")
+    GROQ_API_KEY: str | None = Field(default=None, description="Groq API key (optional)")
 
     # Integration
     BACKEND_BASE_URL: str = Field(default="http://localhost:8000")
@@ -133,10 +146,13 @@ class Settings(BaseSettings):
         return self.ENVIRONMENT == "development"
 
     class Config:
-        """Pydantic config."""
+        """Pydantic config (compat for pydantic v2)."""
 
         env_file = ".env"
         case_sensitive = True
+        extra = "allow"  # allow unrelated env vars to coexist
+
+    # Note: Avoid mixing Config and model_config to keep compatibility.
 
 
 # Global settings instance

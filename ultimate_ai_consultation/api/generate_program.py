@@ -30,6 +30,8 @@ from api.schemas.outputs import (
     MultimodalDrill,
 )
 from api.schemas.meta import ProgramVersion, Provenance
+from services.ai.personalization import explain_tradeoffs
+from config import get_settings
 from api.adapters import consultation_to_user_profile, validate_consultation_data, ConsultationValidationError
 from services.program_generator import PlanGenerator
 from services.program_generator.plan_generator import CompletePlan
@@ -190,6 +192,23 @@ def _transform_to_program_bundle(
         ],
         message=complete_plan.feasibility_result.message,
     )
+
+    # Optional: enrich trade-off explanations with AI (cheap, compact)
+    try:
+        settings = get_settings()
+        if settings.ENABLE_LLM_PERSONALIZATION and (feasibility_report.trade_offs or []) and feasibility_report.status in ("suboptimal",):
+            enriched = explain_tradeoffs(
+                constraints={
+                    "sessions_per_week": complete_plan.training_sessions_per_week,
+                    "available_days": getattr(complete_plan, "available_days", None),
+                },
+                tradeoffs=feasibility_report.trade_offs or [],
+            )
+            if enriched:
+                feasibility_report.trade_offs = enriched  # type: ignore[assignment]
+    except Exception:
+        # Never let AI enrichment break program generation
+        pass
     
     # Create program version
     version = ProgramVersion(
@@ -397,7 +416,34 @@ def _transform_training_plan(complete_plan: CompletePlan, consultation: Consulta
             notes=session.notes,
         ))
     
-    # Build training plan
+    # Build training plan (append optional coach notes)
+    extra_notes = None
+    try:
+        from services.ai.personalization import coach_notes_for_shift_worker
+        from config import get_settings
+        settings = get_settings()
+        if settings.ENABLE_LLM_PERSONALIZATION:
+            # Simple shift-worker heuristic from consultation data
+            has_sleep_diff = any((d.category or "").lower() == "sleep" for d in (consultation.difficulties or []))
+            evening_bias = sum(1 for a in (consultation.training_availability or []) if "evening" in (a.time_of_day or []))
+            if has_sleep_diff or evening_bias >= 2:
+                ctx = {
+                    "availability": [a.model_dump() for a in (consultation.training_availability or [])],
+                    "preferred_meal_times": [m.model_dump() for m in (consultation.preferred_meal_times or [])],
+                    "difficulties": [d.model_dump() for d in (consultation.difficulties or [])],
+                }
+                extra_notes = coach_notes_for_shift_worker(ctx)
+    except Exception:
+        extra_notes = None
+
+    tp_notes = training_program.progression_notes
+    if extra_notes:
+        tp_notes = (tp_notes or "").strip()
+        if tp_notes:
+            tp_notes += "\n\nCoach Notes:\n" + extra_notes
+        else:
+            tp_notes = "Coach Notes:\n" + extra_notes
+
     training_plan = TrainingPlan(
         split_type=training_program.split_type.value,
         sessions_per_week=training_program.sessions_per_week,
@@ -405,7 +451,7 @@ def _transform_training_plan(complete_plan: CompletePlan, consultation: Consulta
         weekly_volume_per_muscle=training_program.weekly_volume_per_muscle,
         primary_intensity_zone="hypertrophy",  # TODO: Extract from program
         deload_week=training_program.deload_week,
-        program_notes=training_program.progression_notes,
+        program_notes=tp_notes,
     )
     
     return training_plan
