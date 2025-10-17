@@ -577,6 +577,555 @@ summary = await activity_service.get_daily_summary(
 
 ---
 
+## 📚 Activity Tracking Documentation (CRITICAL - READ BEFORE MODIFYING)
+
+### **Comprehensive Documentation Available**
+
+The activity tracking system has **comprehensive documentation** designed to achieve **ZERO BUGS**. Before working on any activity tracking feature, you MUST consult these documents.
+
+### **Documentation Files**
+
+**Location:** Project root directory (`/`)
+
+1. **`ACTIVITY_TRACKING_SYSTEM.md`** (15,000+ words)
+   - Complete system architecture
+   - Database schema & all constraints
+   - API contracts for all 6 endpoints
+   - Type system (TypeScript + Pydantic sync requirements)
+   - Data flow diagrams
+   - Validation rules (3 layers)
+   - Calculation formulas (duration, METs, calories)
+   - Timezone handling (UTC ↔ local)
+   - Critical code paths
+
+2. **`ACTIVITY_TRACKING_BUG_PREVENTION.md`** (18,000+ words)
+   - **50+ specific bug scenarios** with prevention strategies
+   - 12 bug categories covering all common mistakes
+   - Code examples: ✅ Correct vs ❌ Wrong
+   - Mitigation checklists
+   - Cross-references to system docs
+
+3. **`ACTIVITY_TRACKING_DOCUMENTATION_SUMMARY.md`**
+   - Executive summary
+   - Documentation statistics
+   - Quick reference guide
+
+### **When to Use Each Document**
+
+**Before Starting Development:**
+```
+1. Read ACTIVITY_TRACKING_SYSTEM.md relevant sections
+   - Section 2: Database Schema (if changing database)
+   - Section 3: API Contracts (if changing endpoints)
+   - Section 4: Type System (if changing models)
+   - Section 5: Data Flow (if changing business logic)
+   - Section 8: Calculation Formulas (if changing math)
+```
+
+**While Coding:**
+```
+1. Refer to inline documentation in code files
+   - app/models/activities.py (comprehensive docstrings)
+   - app/services/activity_service.py (service layer docs)
+   - All inline docs cross-reference main documentation
+
+2. Check ACTIVITY_TRACKING_BUG_PREVENTION.md for your task
+   - Bug 2.x: Timezone & Date Handling
+   - Bug 3.x: Calculation & Formula Bugs
+   - Bug 4.x: Type Safety & Validation
+   - Bug 6.x: Database Integrity
+   - Bug 12.x: Security & Authorization
+```
+
+**Before Submitting PR:**
+```
+1. Run through relevant mitigation checklists
+2. Verify type sync (Pydantic ↔ TypeScript)
+3. Check timezone handling is correct
+4. Verify validation at all 3 layers
+5. Ensure calculations match documented formulas
+```
+
+### **Critical Requirements**
+
+**TYPE SYNCHRONIZATION (CRITICAL):**
+```python
+# Backend: app/models/activities.py
+# Frontend: lib/types/activities.ts
+# MUST stay in sync - documented in both files
+# Last Sync Date: Check file headers
+# Breaking changes require API versioning
+```
+
+**TIMEZONE HANDLING (CRITICAL):**
+```python
+# Database: Always UTC (TIMESTAMPTZ)
+# API: Always send/receive ISO 8601 UTC strings
+# Frontend: Convert to user's local timezone for display
+# Grouping: NEVER use UTC date - use user's timezone
+# See: ACTIVITY_TRACKING_SYSTEM.md Section 9
+```
+
+**VALIDATION LAYERS (CRITICAL):**
+```python
+# Layer 1: Pydantic models (app/models/activities.py)
+# Layer 2: Service layer (app/services/activity_service.py)
+# Layer 3: Database constraints (CHECK, FK, NOT NULL)
+# All 3 layers must be consistent
+```
+
+**CALCULATION FORMULAS (CRITICAL):**
+```python
+# Duration: (end_time - start_time) / 60 seconds
+# Calories: METs × weight_kg × (duration_minutes / 60)
+# Goal %: (total_calories / daily_goal) × 100
+# See: ACTIVITY_TRACKING_SYSTEM.md Section 8
+```
+
+### **Common Mistakes to Avoid**
+
+❌ **DON'T:**
+- Change Pydantic models without updating TypeScript types
+- Use UTC date for grouping activities by day
+- Skip validation at any layer
+- Hardcode calculation formulas (use documented formulas)
+- Ignore soft delete filtering (WHERE deleted_at IS NULL)
+- Allow users to update other users' activities
+- Use `any` type in TypeScript (strict type safety)
+
+✅ **DO:**
+- Check documentation before modifying
+- Update all 3 layers when changing schema
+- Use timezone-aware date comparisons
+- Follow documented calculation formulas exactly
+- Always verify ownership before mutations
+- Add new bugs to bug prevention guide
+
+### **Bug Prevention Strategy**
+
+When implementing a feature:
+
+1. **Read relevant documentation sections**
+   - Understand the architecture
+   - Review data flow diagrams
+   - Check calculation formulas
+
+2. **Check bug prevention guide**
+   - Find similar scenarios
+   - Review prevention strategies
+   - Use provided code examples
+
+3. **Follow mitigation checklists**
+   - Validation at all layers
+   - Timezone handling correct
+   - Type sync maintained
+   - Security checks in place
+
+4. **Test edge cases**
+   - Null/undefined values
+   - Timezone boundaries (midnight, DST)
+   - Concurrent operations
+   - Authorization failures
+
+5. **Update documentation if needed**
+   - Add new bug scenarios discovered
+   - Update calculation formulas if changed
+   - Update last sync dates
+
+### **Quick Reference**
+
+**File Locations:**
+```
+Backend Models:     app/models/activities.py
+Backend Service:    app/services/activity_service.py
+Backend Endpoints:  app/api/v1/activities.py
+Frontend Types:     ../ULTIMATE_COACH_FRONTEND/lib/types/activities.ts
+Frontend API:       ../ULTIMATE_COACH_FRONTEND/lib/api/activities.ts
+```
+
+**Documentation:**
+```
+System Docs:     /ACTIVITY_TRACKING_SYSTEM.md
+Bug Prevention:  /ACTIVITY_TRACKING_BUG_PREVENTION.md
+Summary:         /ACTIVITY_TRACKING_DOCUMENTATION_SUMMARY.md
+```
+
+**Key Sections to Bookmark:**
+- Section 2.2: JSONB Metrics Schemas
+- Section 3.4: Create Activity API
+- Section 8: Calculation Formulas
+- Section 9: Timezone Handling
+- Bug 2.1: Activities Grouped Under Wrong Date
+- Bug 3.1: Incorrect Calorie Calculation
+- Bug 4.1: TypeScript Types Out of Sync
+
+### **For AI Assistants Working on Activities**
+
+**MANDATORY STEPS:**
+
+1. **Read ACTIVITY_TRACKING_SYSTEM.md Section relevant to your task**
+2. **Check ACTIVITY_TRACKING_BUG_PREVENTION.md for similar scenarios**
+3. **Review inline documentation in code files**
+4. **Verify type sync requirements**
+5. **Test with timezone edge cases**
+6. **Run mitigation checklists**
+
+**If you discover a new bug:**
+1. Document root cause
+2. Add to ACTIVITY_TRACKING_BUG_PREVENTION.md
+3. Add prevention strategy with code example
+4. Create test to prevent regression
+
+**Remember:** This system is designed for ZERO BUGS. The documentation is comprehensive. Use it.
+
+---
+
+## 🍽️ Nutrition Logging Documentation (CRITICAL - READ BEFORE MODIFYING)
+
+### **Overview**
+The nutrition logging system has comprehensive documentation to prevent bugs like the "100 banana" incident (where users could accidentally log 100 servings instead of 1). **ALWAYS read this documentation before modifying nutrition logging code.**
+
+### **Documentation Files**
+
+**Location:** Project root directory (`/`)
+
+**📘 Complete Architecture:**
+- **File:** `NUTRITION_LOGGING_ARCHITECTURE.md`
+- **Length:** 800+ lines
+- **Contents:**
+  - System overview and design philosophy
+  - Critical concepts (quantity semantic overload)
+  - State management rules with 3 critical reset points
+  - Complete data flow diagram
+  - Frontend/backend contract specifications
+  - Multi-layer validation requirements
+  - Common bugs and prevention strategies
+  - Testing checklist
+
+**🚀 Quick Reference:**
+- **File:** `NUTRITION_LOGGING_QUICK_REFERENCE.md`
+- **Length:** 200+ lines
+- **Contents:**
+  - TL;DR of critical concepts
+  - Three reset rules with code examples
+  - Validation checklist
+  - Testing scenarios
+  - Code locations table
+
+### **When to Read This Documentation**
+- ✅ Before modifying `app/services/nutrition_service.py`
+- ✅ Before changing `app/services/nutrition_calculator.py`
+- ✅ Before updating meal/food API endpoints
+- ✅ When debugging nutrition calculation issues
+- ✅ When adding new food types or serving logic
+- ✅ When a bug report mentions incorrect quantities or nutrition values
+
+### **The Critical Concept: Quantity Semantic Overload**
+
+The `quantity` field in meal items has **two different meanings** depending on context:
+
+```python
+# GRAMS MODE (serving_id = None)
+quantity: 150  # = 150 grams of chicken breast
+
+# SERVING MODE (serving_id = UUID)
+quantity: 2    # = 2 servings of protein powder
+```
+
+**Why this is critical for backend:**
+- Frontend sends `quantity` with different meanings
+- Backend MUST understand which mode is active
+- Backend MUST recalculate nutrition (never trust frontend values)
+- Validation thresholds differ between modes
+
+### **Backend Responsibilities**
+
+#### **1. Multi-Layer Validation**
+
+The backend implements the **final two layers** of a 4-layer validation system:
+
+```python
+# app/services/nutrition_service.py
+
+# Layer 3: Backend Warning (line 735)
+if serving_id and quantity > 10:
+    logger.warning(
+        "high_serving_quantity",
+        user_id=user_id,
+        quantity=quantity,
+        food_id=item.food_id
+    )
+
+# Layer 4: Backend Hard Rejection (line 722)
+if serving_id and quantity > 50:
+    raise HTTPException(
+        status_code=400,
+        detail="Serving quantity cannot exceed 50"
+    )
+```
+
+#### **2. Authoritative Calculations**
+
+**Critical Principle:** "Calculate once, store forever"
+
+```python
+# app/services/nutrition_service.py:764-768
+
+# WRONG - Trust frontend values
+item_calories = item.calories  # From request
+
+# CORRECT - Recalculate everything
+nutrition = calculate_food_nutrition(
+    food_data=food,
+    quantity=item.quantity,
+    unit='grams' if not item.serving_id else 'serving',
+    serving_data=serving,
+    get_food_by_id=lambda fid: get_food(fid)
+)
+item_calories = nutrition['calories']
+```
+
+**Why this is critical:**
+- Frontend calculations are for preview/UX only
+- Malicious users could send fake nutrition values
+- Frontend bugs don't corrupt database
+- Single source of truth for all stored values
+
+#### **3. Complete Data Joins**
+
+**Critical for frontend display:**
+
+```python
+# app/services/nutrition_service.py:889 and 941
+
+# WRONG - Missing food names
+.select("*, meal_items(*)")
+
+# CORRECT - Join foods table
+.select("*, meal_items(*, foods(name, brand_name))")
+```
+
+**Why this is critical:**
+- Frontend needs food names for display
+- Without JOIN, frontend shows blank food names
+- Fixed in recent update to prevent "grams displayed twice" bug
+
+### **Calculation Formulas**
+
+The backend uses `nutrition_calculator.py` which mirrors frontend calculations:
+
+```python
+# app/services/nutrition_calculator.py
+
+# Simple/Branded Foods
+def calculate_simple_food_nutrition(food_data, grams):
+    factor = grams / 100
+    return {
+        'calories': round(food_data['calories_per_100g'] * factor),
+        'protein_g': round(food_data['protein_g_per_100g'] * factor, 1),
+        'carbs_g': round(food_data['carbs_g_per_100g'] * factor, 1),
+        'fat_g': round(food_data['fat_g_per_100g'] * factor, 1),
+    }
+
+# Composed Foods (Recipes)
+def calculate_composed_food_nutrition(recipe_items, servings, get_food_by_id):
+    # Recursively sum nutrition from all ingredients
+    # Scale by servings multiplier
+    # See nutrition_calculator.py:82-118
+```
+
+### **Type Safety Requirements**
+
+**CRITICAL:** Backend Pydantic models must match frontend TypeScript types.
+
+**Backend Models** (`app/models/meal.py` or similar):
+```python
+class CreateMealItemRequest(BaseModel):
+    food_id: str
+    quantity: float
+    serving_id: str | None
+    grams: float
+    calories: int              # Rounded to int
+    protein_g: float           # Rounded to 1 decimal
+    carbs_g: float
+    fat_g: float
+    display_unit: str
+    display_label: str | None
+```
+
+**Frontend Types** (`lib/types/nutrition.ts`):
+```typescript
+export interface CreateMealItemRequest {
+  food_id: string
+  quantity: number
+  serving_id: string | null
+  grams: number
+  calories: number           // Must match backend int
+  protein_g: number          // Must match backend float
+  carbs_g: number
+  fat_g: number
+  display_unit: string
+  display_label: string | null
+}
+```
+
+**Synchronization checklist:**
+- [ ] Field names match exactly (snake_case backend, camelCase frontend after transform)
+- [ ] Types match (int/float vs number, str vs string)
+- [ ] Nullability matches (Optional[str] vs string | null)
+- [ ] Rounding rules match (calories: int, macros: 1 decimal)
+
+### **Timezone Handling**
+
+**Recent fix (2025-10-17):**
+
+```python
+# Frontend now sends logged_at timestamp
+# app/api/v1/meals.py
+
+@router.post("/meals")
+async def create_meal(request: CreateMealRequest, ...):
+    # Frontend sends: logged_at: "2025-10-17T15:30:00Z"
+    # Backend stores as UTC in database
+    # Queries use user's timezone for date grouping
+```
+
+**Why this was critical:**
+- Before fix: Backend used `datetime.utcnow()` (current UTC time)
+- Problem: For users behind UTC, meals appeared in the future
+- Solution: Frontend sends user's current time converted to UTC
+- See: NUTRITION_LOGGING_ARCHITECTURE.md Section on Timezone Handling
+
+### **Code Locations**
+
+| Feature | File | Key Functions/Lines |
+|---------|------|---------------------|
+| Backend validation | app/services/nutrition_service.py | Lines 722, 735 |
+| Backend calculations | app/services/nutrition_service.py | Lines 764-768 |
+| Calculator functions | app/services/nutrition_calculator.py | Full file |
+| Food data joins | app/services/nutrition_service.py | Lines 889, 941 |
+| Meal creation endpoint | app/api/v1/meals.py | create_meal() |
+| Food search service | app/services/food_search.py | search_foods() |
+
+### **Testing Checklist**
+
+Before merging nutrition logging changes:
+
+- [ ] Backend validates serving quantity >50 (HTTP 400)
+- [ ] Backend logs warning for quantity >10 servings
+- [ ] Backend recalculates ALL nutrition values (never trusts frontend)
+- [ ] Backend includes food names in meal queries (JOIN foods table)
+- [ ] logged_at timestamp properly stored in UTC
+- [ ] Calculations match frontend preview (within rounding)
+- [ ] Test case: Submit 60 servings → Backend rejects with 400
+- [ ] Test case: Submit meal with frontend-calculated nutrition → Backend recalculates
+- [ ] Test case: Query meals → Food names appear in response
+
+### **Common Backend Mistakes**
+
+❌ **Mistake 1:** Trusting frontend-calculated nutrition
+```python
+# WRONG - Uses values from request
+item_calories = item.calories
+item_protein = item.protein_g
+
+# CORRECT - Recalculates from food data
+nutrition = calculate_food_nutrition(food, item.quantity, ...)
+item_calories = nutrition['calories']
+```
+
+❌ **Mistake 2:** Missing validation
+```python
+# WRONG - No serving quantity check
+await create_meal_item(item)
+
+# CORRECT - Validate first
+if item.serving_id and item.quantity > 50:
+    raise HTTPException(400, "Serving quantity too high")
+```
+
+❌ **Mistake 3:** Incomplete data joins
+```python
+# WRONG - Frontend gets no food names
+.select("*, meal_items(*)")
+
+# CORRECT - Include food data
+.select("*, meal_items(*, foods(name, brand_name))")
+```
+
+❌ **Mistake 4:** Using current UTC time for logged_at
+```python
+# WRONG - Ignores user's timezone
+logged_at = datetime.utcnow()
+
+# CORRECT - Use timestamp from request
+logged_at = request.logged_at  # Frontend sends proper UTC time
+```
+
+### **Security Considerations**
+
+**Never trust client data:**
+
+```python
+# ALWAYS recalculate nutrition
+# ALWAYS validate ownership (user_id check)
+# ALWAYS validate serving quantities
+# ALWAYS use parameterized queries (Supabase handles this)
+# ALWAYS log suspicious activity (e.g., quantity > 10)
+```
+
+**Example secure implementation:**
+
+```python
+@router.post("/meals")
+async def create_meal(
+    request: CreateMealRequest,
+    current_user = Depends(get_current_user)
+):
+    # Validate ownership - use current_user.id, not request.user_id
+    # Recalculate nutrition - don't trust request values
+    # Validate quantities - reject suspicious values
+    # Log activity - for audit trail
+```
+
+### **When in Doubt**
+
+1. **Read the full documentation:** `NUTRITION_LOGGING_ARCHITECTURE.md`
+2. **Check the quick reference:** `NUTRITION_LOGGING_QUICK_REFERENCE.md`
+3. **Review inline comments in code files**
+4. **Ask:** Does `quantity` mean grams or servings here?
+5. **Verify:** Am I recalculating or trusting frontend values?
+6. **Test:** Does backend reject invalid serving quantities?
+
+### **Key Backend Principles**
+
+> **"Never trust the client. Always recalculate. Always validate."**
+
+> **"The backend is the source of truth. Frontend is for preview only."**
+
+> **"Calculate once, store forever. Database values are immutable."**
+
+### **For AI Assistants Working on Nutrition**
+
+**MANDATORY STEPS:**
+
+1. **Read NUTRITION_LOGGING_ARCHITECTURE.md Section relevant to your task**
+2. **Review NUTRITION_LOGGING_QUICK_REFERENCE.md for critical concepts**
+3. **Check inline documentation in code files**
+4. **Verify backend recalculates all nutrition values**
+5. **Verify validation at all backend layers**
+6. **Test with edge cases (high quantities, missing fields)**
+
+**If you discover a new bug:**
+1. Document root cause
+2. Add to documentation with prevention strategy
+3. Add code example: ✅ Correct vs ❌ Wrong
+4. Create test to prevent regression
+
+**Remember:** The "100 banana" bug was caused by forgetting quantity reset in frontend. The backend must protect against ALL client bugs with proper validation and recalculation.
+
+---
+
 ## Database Schema
 
 ### **Key Tables**
@@ -730,6 +1279,14 @@ When working on this codebase:
 4. **ALWAYS** use Pydantic models for validation
 5. **NEVER** use service role key for user queries (RLS bypass)
 6. **ASK** if consultation system needs modification (complex feature)
+7. **CRITICAL:** Before modifying activity tracking, read:
+   - `../ACTIVITY_TRACKING_SYSTEM.md` (15,000+ words)
+   - `../ACTIVITY_TRACKING_BUG_PREVENTION.md` (18,000+ words)
+   - See "📚 Activity Tracking Documentation" section above
+8. **CRITICAL:** Before modifying nutrition logging, read:
+   - `../NUTRITION_LOGGING_ARCHITECTURE.md` (800+ lines)
+   - `../NUTRITION_LOGGING_QUICK_REFERENCE.md` (200+ lines)
+   - See "🍽️ Nutrition Logging Documentation" section above
 
 **Common Mistakes to Avoid:**
 - ❌ Using `print()` instead of `logger.info()`
@@ -738,6 +1295,10 @@ When working on this codebase:
 - ❌ Ignoring RLS (use user's JWT for queries)
 - ❌ Not including error context in logs
 - ❌ Exposing sensitive data in error messages
+- ❌ Modifying activity/nutrition code without reading documentation
+- ❌ Trusting frontend nutrition calculations (always recalculate)
+- ❌ Missing validation for serving quantities
+- ❌ Using UTC dates for activity grouping (use user's timezone)
 
 ---
 
