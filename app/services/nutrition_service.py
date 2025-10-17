@@ -601,10 +601,21 @@ class NutritionService:
         - GRAM-BASED: serving_id = None, quantity = grams (e.g., 100 = 100g)
         - SERVING-BASED: serving_id = UUID, quantity = serving count (e.g., 2 = 2 scoops)
 
-        Backend ALWAYS recalculates grams and nutrition from quantity + serving/food.
-        Does not trust frontend's pre-calculated values (single source of truth).
+        CRITICAL: Backend ALWAYS recalculates grams and nutrition from quantity + serving/food.
+        Does NOT trust frontend's pre-calculated values (single source of truth).
+
+        QUANTITY SEMANTIC OVERLOAD:
+        - If serving_id is None → quantity = grams directly
+        - If serving_id present → quantity = serving count (multiplied by grams_per_serving)
+
+        VALIDATION LAYERS:
+        - Serving count: max 50 (hard reject), warn if >10
+        - Gram amount: max 10,000g (10kg) per item
+        - Serving ownership: serving_id must belong to food_id
 
         PERFORMANCE: Batches all food fetches in a single query (fixes N+1 issue).
+
+        See: NUTRITION_LOGGING_ARCHITECTURE.md for complete documentation
 
         Raises:
             MealEmptyError: If items list is empty
@@ -661,8 +672,13 @@ class NutritionService:
 
                 # Determine if gram-based or serving-based logging
                 if item.serving_id is None:
+                    # ======================================================
                     # GRAM-BASED LOGGING
+                    # ======================================================
                     # quantity represents grams directly (e.g., 100 = 100g)
+                    # Frontend sends: quantity=150, serving_id=null
+                    # We interpret: user logged 150 grams
+                    # ======================================================
                     grams = item.quantity
                     serving = None
 
@@ -673,8 +689,14 @@ class NutritionService:
                             f"Maximum allowed is 10,000g (10kg) per item."
                         )
                 else:
+                    # ======================================================
                     # SERVING-BASED LOGGING
+                    # ======================================================
                     # quantity represents serving count (e.g., 2 = 2 servings)
+                    # Frontend sends: quantity=2, serving_id="uuid"
+                    # We interpret: user logged 2 servings
+                    # We calculate: grams = 2 × serving.grams_per_serving
+                    # ======================================================
                     serving = next(
                         (s for s in food.servings if s.id == item.serving_id), None
                     )
@@ -689,7 +711,14 @@ class NutritionService:
                             str(serving.food_id),
                         )
 
-                    # CRITICAL: Validate reasonable serving counts (prevent 100 bananas bug)
+                    # ======================================================
+                    # VALIDATION LAYER 4: Backend Hard Limit (50 servings)
+                    # ======================================================
+                    # CRITICAL: Prevents "100 banana" bug from reaching database
+                    # Frontend has 3 layers (HTML max=20, warning >10, visual warning)
+                    # This is the final safety net
+                    # See: NUTRITION_LOGGING_ARCHITECTURE.md - Validation Requirements
+                    # ======================================================
                     if item.quantity > 50:
                         raise ValueError(
                             f"Unreasonable quantity: {item.quantity} servings of {food.name}. "
@@ -697,7 +726,12 @@ class NutritionService:
                             f"Did you mean to log in grams instead?"
                         )
 
-                    # Warning log for suspicious quantities (>10 servings)
+                    # ======================================================
+                    # MONITORING: Log suspicious quantities (>10 servings)
+                    # ======================================================
+                    # This doesn't block the request, but alerts monitoring
+                    # Helps detect patterns (e.g., consistent >10 serving logs)
+                    # ======================================================
                     if item.quantity > 10:
                         logger.warning(
                             "suspicious_serving_quantity",
@@ -709,10 +743,24 @@ class NutritionService:
                         )
 
                     # Calculate grams from serving count
+                    # Example: 2 servings × 118g/serving = 236g
                     grams = item.quantity * serving.grams_per_serving
 
-                # ALWAYS calculate nutrition from grams (single source of truth)
-                # Don't trust frontend's pre-calculated values
+                # ======================================================
+                # AUTHORITATIVE CALCULATION (Single Source of Truth)
+                # ======================================================
+                # ALWAYS calculate nutrition from grams - DON'T TRUST FRONTEND
+                # Frontend values are for preview only, backend recalculates everything
+                #
+                # All foods store nutrition as per_100g in database
+                # Formula: (grams / 100) × per_100g_value
+                #
+                # Example: 236g banana with 89 cal/100g
+                #   multiplier = 236 / 100 = 2.36
+                #   calories = 89 × 2.36 = 210
+                #
+                # See: NUTRITION_LOGGING_ARCHITECTURE.md - Frontend/Backend Contract
+                # ======================================================
                 multiplier = grams / Decimal("100")
                 item_calories = food.calories_per_100g * multiplier
                 item_protein = food.protein_g_per_100g * multiplier
@@ -838,7 +886,7 @@ class NutritionService:
 
             query = (
                 supabase_service.client.table("meals")
-                .select("*, meal_items(*)")
+                .select("*, meal_items(*, foods(name, brand_name))")
                 .eq("user_id", str(user_id))
                 .order("logged_at", desc=True)
                 .limit(limit)
@@ -890,7 +938,7 @@ class NutritionService:
         try:
             response = (
                 supabase_service.client.table("meals")
-                .select("*, meal_items(*)")
+                .select("*, meal_items(*, foods(name, brand_name))")
                 .eq("id", str(meal_id))
                 .eq("user_id", str(user_id))
                 .single()
