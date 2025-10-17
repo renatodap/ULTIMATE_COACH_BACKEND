@@ -160,7 +160,7 @@ class MealItem(BaseModel):
 
     # What user logged
     quantity: Decimal = Field(gt=0)
-    serving_id: UUID
+    serving_id: Optional[UUID]  # CRITICAL FIX: Optional for gram-based logging
 
     # Calculated at log time (stored for history)
     grams: Decimal = Field(gt=0)
