@@ -258,15 +258,36 @@ class AuthService:
             }
 
         except Exception as e:
-            logger.error(
-                "Token validation failed",
-                extra={
-                    "error": str(e),
-                    "error_type": type(e).__name__,
-                    "token_prefix": access_token[:20] if access_token else None
-                },
-                exc_info=True
+            error_message = str(e)
+            error_type = type(e).__name__
+
+            # Detect orphaned session error (common after email verification or session refresh issues)
+            # AuthApiError: "Session from session_id claim in JWT does not exist"
+            is_orphaned_session = (
+                "session" in error_message.lower() and
+                ("does not exist" in error_message.lower() or "not exist" in error_message.lower())
             )
+
+            if is_orphaned_session:
+                logger.warning(
+                    "Orphaned session detected - token has session_id but session doesn't exist in Supabase",
+                    extra={
+                        "error": error_message,
+                        "error_type": error_type,
+                        "token_prefix": access_token[:20] if access_token else None,
+                        "resolution": "User should log in again to create new session"
+                    }
+                )
+            else:
+                logger.error(
+                    "Token validation failed",
+                    extra={
+                        "error": error_message,
+                        "error_type": error_type,
+                        "token_prefix": access_token[:20] if access_token else None
+                    },
+                    exc_info=True
+                )
             return None
 
     async def refresh_session(self, refresh_token: str) -> Dict[str, Any]:

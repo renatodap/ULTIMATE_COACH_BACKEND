@@ -28,10 +28,16 @@ async def get_current_user(request: Request) -> dict:
     """
     Dependency to get the current authenticated user from httpOnly cookie or Authorization header.
 
-    Tries multiple authentication methods:
-    1. Authorization header (Bearer token)
-    2. access_token cookie (backend standard)
-    3. sb-access-token cookie (Supabase standard)
+    Tries multiple authentication methods (in priority order):
+    1. access_token cookie (backend standard - most secure, httpOnly)
+    2. sb-access-token cookie (Supabase standard - fallback)
+    3. Authorization header (Bearer token - for mobile/API clients)
+
+    PRIORITY RATIONALE:
+    - Cookies are checked first because they're more secure (httpOnly, CSRF protection)
+    - Cookies are the primary auth method for web clients
+    - Authorization headers are secondary for mobile/API/external clients
+    - This prevents issues with stale or orphaned Authorization header tokens
 
     Args:
         request: FastAPI request object
@@ -45,23 +51,23 @@ async def get_current_user(request: Request) -> dict:
     access_token = None
     auth_method = None
 
-    # Method 1: Check Authorization header
-    auth_header = request.headers.get("authorization") or request.headers.get("Authorization")
-    if auth_header and auth_header.lower().startswith("bearer "):
-        access_token = auth_header.split(" ", 1)[1]
-        auth_method = "header"
+    # Method 1: Check access_token cookie (backend standard - highest priority)
+    access_token = request.cookies.get("access_token")
+    if access_token:
+        auth_method = "access_token_cookie"
 
-    # Method 2: Check access_token cookie (backend standard)
-    if not access_token:
-        access_token = request.cookies.get("access_token")
-        if access_token:
-            auth_method = "access_token_cookie"
-
-    # Method 3: Check sb-access-token cookie (Supabase standard)
+    # Method 2: Check sb-access-token cookie (Supabase standard - fallback)
     if not access_token:
         access_token = request.cookies.get("sb-access-token")
         if access_token:
             auth_method = "sb_access_token_cookie"
+
+    # Method 3: Check Authorization header (Bearer token - for mobile/API clients)
+    if not access_token:
+        auth_header = request.headers.get("authorization") or request.headers.get("Authorization")
+        if auth_header and auth_header.lower().startswith("bearer "):
+            access_token = auth_header.split(" ", 1)[1]
+            auth_method = "header"
 
     if not access_token:
         logger.warning(
