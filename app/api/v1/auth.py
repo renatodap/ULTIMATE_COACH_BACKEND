@@ -203,14 +203,22 @@ async def logout(response: Response) -> JSONResponse:
         await auth_service.logout("")
 
         # Clear httpOnly cookies on client
+        # CRITICAL: Must match ALL attributes from set_cookie() for browser to recognize and delete
+        # See: set_auth_cookies() lines 26-50
         try:
             response.delete_cookie(
                 key="access_token",
                 path="/",
+                httponly=True,
+                secure=not settings.is_development,
+                samesite="none" if not settings.is_development else "lax",
             )
             response.delete_cookie(
                 key="refresh_token",
                 path="/",
+                httponly=True,
+                secure=not settings.is_development,
+                samesite="none" if not settings.is_development else "lax",
             )
         except Exception as e:
             logger.warning("cookie_clear_failed", error=str(e))
