@@ -665,6 +665,13 @@ class NutritionService:
                     # quantity represents grams directly (e.g., 100 = 100g)
                     grams = item.quantity
                     serving = None
+
+                    # Validate reasonable gram amounts (max 10kg = 10,000g per item)
+                    if grams > 10000:
+                        raise ValueError(
+                            f"Unreasonable quantity: {grams}g for {food.name}. "
+                            f"Maximum allowed is 10,000g (10kg) per item."
+                        )
                 else:
                     # SERVING-BASED LOGGING
                     # quantity represents serving count (e.g., 2 = 2 servings)
@@ -680,6 +687,25 @@ class NutritionService:
                             str(item.serving_id),
                             str(item.food_id),
                             str(serving.food_id),
+                        )
+
+                    # CRITICAL: Validate reasonable serving counts (prevent 100 bananas bug)
+                    if item.quantity > 50:
+                        raise ValueError(
+                            f"Unreasonable quantity: {item.quantity} servings of {food.name}. "
+                            f"Maximum allowed is 50 servings per item. "
+                            f"Did you mean to log in grams instead?"
+                        )
+
+                    # Warning log for suspicious quantities (>10 servings)
+                    if item.quantity > 10:
+                        logger.warning(
+                            "suspicious_serving_quantity",
+                            food_name=food.name,
+                            quantity=float(item.quantity),
+                            serving_unit=serving.serving_unit,
+                            total_grams=float(item.quantity * serving.grams_per_serving),
+                            user_id=str(user_id)
                         )
 
                     # Calculate grams from serving count
@@ -800,6 +826,16 @@ class NutritionService:
     ) -> List[Meal]:
         """Get user's meals with optional date filtering."""
         try:
+            # DEBUG: Log query construction
+            logger.info(
+                "get_user_meals_query_building",
+                user_id=str(user_id),
+                start_date=start_date.isoformat() if start_date else None,
+                end_date=end_date.isoformat() if end_date else None,
+                limit=limit,
+                offset=offset
+            )
+
             query = (
                 supabase_service.client.table("meals")
                 .select("*, meal_items(*)")
@@ -816,6 +852,14 @@ class NutritionService:
 
             response = query.execute()
 
+            # DEBUG: Log raw response
+            logger.info(
+                "get_user_meals_raw_response",
+                user_id=str(user_id),
+                rows_returned=len(response.data),
+                sample_row=response.data[0] if response.data else None
+            )
+
             meals = []
             for row in response.data:
                 items_data = row.pop("meal_items", [])
@@ -823,10 +867,22 @@ class NutritionService:
                 meal.items = [MealItem(**item) for item in items_data]
                 meals.append(meal)
 
+            # DEBUG: Log processed meals
+            logger.info(
+                "get_user_meals_processed",
+                user_id=str(user_id),
+                meals_count=len(meals),
+                meals_sample=[{
+                    "id": str(m.id),
+                    "logged_at": m.logged_at.isoformat() if m.logged_at else None,
+                    "meal_type": m.meal_type
+                } for m in meals[:3]]
+            )
+
             return meals
 
         except Exception as e:
-            logger.error("get_user_meals_error", user_id=str(user_id), error=str(e))
+            logger.error("get_user_meals_error", user_id=str(user_id), error=str(e), exc_info=True)
             return []
 
     async def get_meal(self, meal_id: UUID, user_id: UUID) -> Optional[Meal]:

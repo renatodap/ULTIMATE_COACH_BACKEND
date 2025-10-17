@@ -130,6 +130,18 @@ async def list_meals(
         start_dt = datetime.fromisoformat(start_date) if start_date else None
         end_dt = datetime.fromisoformat(end_date) if end_date else None
 
+        # DEBUG: Log query parameters
+        logger.info(
+            "meals_query_start",
+            user_id=current_user["id"],
+            start_date_raw=start_date,
+            end_date_raw=end_date,
+            start_dt_parsed=start_dt.isoformat() if start_dt else None,
+            end_dt_parsed=end_dt.isoformat() if end_dt else None,
+            limit=limit,
+            offset=offset
+        )
+
         meals = await nutrition_service.get_user_meals(
             user_id=current_user["id"],
             start_date=start_dt,
@@ -138,12 +150,19 @@ async def list_meals(
             offset=offset,
         )
 
+        # DEBUG: Log sample meal data
         logger.info(
             "meals_retrieved",
             user_id=current_user["id"],
             count=len(meals),
             start_date=start_date,
             end_date=end_date,
+            sample_meals=[{
+                "id": str(m.id),
+                "meal_type": m.meal_type,
+                "logged_at": m.logged_at.isoformat() if m.logged_at else None,
+                "calories": float(m.total_calories)
+            } for m in meals[:3]]  # First 3 meals for debugging
         )
 
         return MealListResponse(meals=meals, total=len(meals))
