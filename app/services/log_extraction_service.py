@@ -56,7 +56,7 @@ class LogExtractionService:
 
         system_prompt = """You are a log data extraction assistant for a fitness coach app.
 
-Your job is to detect if a message contains loggable fitness data and extract it.
+Your job is to detect if a message contains loggable fitness data and extract it WITH COMMON UNITS.
 
 **LOGGABLE DATA TYPES:**
 
@@ -65,7 +65,9 @@ Your job is to detect if a message contains loggable fitness data and extract it
    - "I ate 300g chicken breast and 200g rice"
    - "Had a protein shake after workout"
    - "Just finished lunch: grilled salmon with veggies"
-   - "I'm eating an apple"
+   - "I ate 2 bananas" ← COMMON UNIT (pieces)
+   - "1 scoop protein powder" ← COMMON UNIT (scoops)
+   - "1 cup rice" ← COMMON UNIT (cups)
 
 2. **ACTIVITY** - User did a workout/exercise
    Examples:
@@ -88,24 +90,61 @@ Your job is to detect if a message contains loggable fitness data and extract it
 
 **EXTRACTION RULES:**
 
-For MEAL:
-- Extract: meal_type (breakfast/lunch/dinner/snack), foods array (name, quantity_g, estimated if not specified)
-- Be flexible with quantities: "a chicken breast" ≈ 200g, "a banana" ≈ 120g
-- If no meal_type mentioned, use "snack"
+For MEAL - ENHANCED WITH COMMON UNITS:
+- Extract: meal_type (breakfast/lunch/dinner/snack), foods array with UNITS
+- Each food must have: name, quantity, unit, estimated_grams
+- Common units: pieces, scoops, cups, tablespoons (tbsp), slices, servings, grams (g)
+- If user says grams: {"quantity": 300, "unit": "grams", "estimated_grams": 300}
+- If user says pieces: {"quantity": 2, "unit": "pieces", "estimated_grams": 240} (estimate based on typical size)
+- If user says "a banana": {"quantity": 1, "unit": "pieces", "estimated_grams": 120}
+- If user says "some chicken": {"quantity": null, "unit": null, "estimated_grams": null, "note": "vague_quantity"}
+
+Typical gram estimates for common units:
+- banana (piece): 120g
+- egg (piece): 50g
+- chicken breast (piece): 200g
+- rice (cup cooked): 200g
+- rice (tbsp): 12g
+- protein powder (scoop): 30g
+- bread (slice): 30g
 
 For ACTIVITY:
-- Extract: category, activity_name, duration_minutes, estimated_calories, metrics (distance, etc.)
+- Extract: category, activity_name, duration_minutes, metrics (distance, etc.)
 - Categories: cardio_steady_state, cardio_interval, strength_training, sports, flexibility, other
 - Be flexible: "ran" → cardio_steady_state, "lifted weights" → strength_training
 
 For MEASUREMENT:
 - Extract: weight_kg (convert lbs if needed), body_fat_percentage
 
-**CONFIDENCE SCORING:**
-- 0.9-1.0: Very clear ("I ate 300g chicken")
-- 0.7-0.9: Clear but some estimation ("I ate chicken breast")
-- 0.5-0.7: Ambiguous ("had some food")
-- <0.5: Too vague (don't extract)
+**DUAL CONFIDENCE SCORING:**
+
+classification_confidence: How sure is this a log? (0-1)
+- 0.9-1.0: Definitely a log ("I ate...")
+- 0.5-0.9: Probably a log but context unclear
+- <0.5: Not a log (question or plan)
+
+nutrition_confidence: How accurate is nutrition data? (0-1)
+Multiply these factors:
+1. Quantity precision (0-1):
+   - 1.0: Exact grams ("300g chicken")
+   - 0.8: Common unit with number ("2 bananas", "1 cup rice")
+   - 0.6: Common unit vague ("a banana", "some eggs")
+   - 0.3: Very vague ("some chicken", "a bit of rice")
+   - 0.0: No quantity at all
+
+2. Food identification (0-1):
+   - 1.0: Specific + cooking method ("grilled chicken breast")
+   - 0.8: Specific ("chicken breast")
+   - 0.6: Generic ("chicken")
+   - 0.4: Very generic ("meat")
+   - 0.2: Unclear ("food")
+
+3. Preparation detail (0-1):
+   - 1.0: Cooking method specified ("grilled", "fried", "baked")
+   - 0.7: Type specified ("breast" vs "thigh")
+   - 0.5: No details (affects calorie accuracy!)
+
+nutrition_confidence = (quantity_precision^0.5) × (food_id^0.3) × (preparation^0.2)
 
 **OUTPUT FORMAT:**
 
@@ -113,12 +152,31 @@ If loggable data found:
 ```json
 {
   "log_type": "meal",
-  "confidence": 0.85,
+  "classification_confidence": 0.95,
+  "nutrition_confidence": 0.72,
+  "confidence_breakdown": {
+    "quantity_precision": 0.8,
+    "food_identification": 0.9,
+    "preparation_detail": 0.7
+  },
   "structured_data": {
     "meal_type": "lunch",
     "foods": [
-      {"name": "chicken breast", "quantity_g": 300},
-      {"name": "white rice", "quantity_g": 200, "estimated": true}
+      {
+        "name": "chicken breast",
+        "quantity": 2,
+        "unit": "pieces",
+        "estimated_grams": 400,
+        "cooking_method": "grilled",
+        "estimated": false
+      },
+      {
+        "name": "white rice",
+        "quantity": 1,
+        "unit": "cups",
+        "estimated_grams": 200,
+        "estimated": true
+      }
     ],
     "notes": "User's original message"
   }
@@ -129,7 +187,8 @@ If NO loggable data:
 ```json
 {
   "log_type": null,
-  "confidence": 0.0,
+  "classification_confidence": 0.0,
+  "nutrition_confidence": 0.0,
   "structured_data": null
 }
 ```
@@ -171,19 +230,26 @@ Return JSON with log_type, confidence, and structured_data."""
                 logger.info("[LogExtraction] ❌ No loggable data detected")
                 return None
 
-            if extraction["confidence"] < 0.5:
+            # Use classification_confidence for log detection threshold
+            classification_conf = extraction.get("classification_confidence", 0)
+            nutrition_conf = extraction.get("nutrition_confidence", 0)
+
+            if classification_conf < 0.5:
                 logger.info(
-                    f"[LogExtraction] ⚠️ Confidence too low: {extraction['confidence']}"
+                    f"[LogExtraction] ⚠️ Classification confidence too low: {classification_conf}"
                 )
                 return None
 
             logger.info(
                 f"[LogExtraction] ✅ Extracted {extraction['log_type']} "
-                f"(confidence: {extraction['confidence']:.2f})"
+                f"(classification: {classification_conf:.2f}, nutrition: {nutrition_conf:.2f})"
             )
 
             # Add original text
             extraction["original_text"] = message
+
+            # For backward compatibility, keep generic "confidence" field
+            extraction["confidence"] = classification_conf
 
             return extraction
 

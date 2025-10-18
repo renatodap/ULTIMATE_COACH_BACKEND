@@ -572,9 +572,14 @@ class ToolService:
         return score
 
     async def _get_daily_nutrition_summary(self, user_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
-        """Get today's nutrition totals."""
+        """
+        Get today's nutrition totals with TIME-AWARE PROGRESS.
+
+        NEW: Includes time-aware analysis to prevent "you're behind!" at 6 AM.
+        """
         try:
             from datetime import date, datetime, time
+            from app.utils.time_aware_progress import calculate_time_aware_progress
 
             # Get target date (default: today)
             target_date_str = params.get("date")
@@ -595,33 +600,47 @@ class ToolService:
                 .order("logged_at", desc=False)\
                 .execute()
 
-            if not result.data:
-                return {
-                    "date": target_date.isoformat(),
-                    "meal_count": 0,
-                    "totals": {
-                        "calories": 0,
-                        "protein_g": 0,
-                        "carbs_g": 0,
-                        "fat_g": 0
-                    },
-                    "message": "No meals logged for this date yet."
-                }
-
             # Calculate totals
-            total_calories = sum(float(m.get("total_calories") or 0) for m in result.data)
-            total_protein = sum(float(m.get("total_protein_g") or 0) for m in result.data)
-            total_carbs = sum(float(m.get("total_carbs_g") or 0) for m in result.data)
-            total_fat = sum(float(m.get("total_fat_g") or 0) for m in result.data)
+            total_calories = sum(float(m.get("total_calories") or 0) for m in result.data) if result.data else 0
+            total_protein = sum(float(m.get("total_protein_g") or 0) for m in result.data) if result.data else 0
+            total_carbs = sum(float(m.get("total_carbs_g") or 0) for m in result.data) if result.data else 0
+            total_fat = sum(float(m.get("total_fat_g") or 0) for m in result.data) if result.data else 0
 
-            # Get user's goals
+            # Get user's goals and timezone
             profile = await self._get_user_profile(user_id, {})
-            daily_cal_goal = profile.get("daily_calorie_goal")
-            daily_protein_goal = profile.get("daily_protein_goal")
+            daily_cal_goal = profile.get("daily_calorie_goal", 2000)
+            daily_protein_goal = profile.get("daily_protein_goal", 150)
+            user_timezone = profile.get("timezone", "UTC")
 
-            return {
+            # Calculate basic progress
+            basic_progress = {
+                "calories_percent": round((total_calories / daily_cal_goal * 100) if daily_cal_goal else 0),
+                "protein_percent": round((total_protein / daily_protein_goal * 100) if daily_protein_goal else 0)
+            }
+
+            # Calculate TIME-AWARE PROGRESS (only for today)
+            time_aware = None
+            if target_date == date.today():
+                try:
+                    time_aware = calculate_time_aware_progress(
+                        user_id=user_id,
+                        current_time_utc=datetime.utcnow(),
+                        actual_calories=total_calories,
+                        goal_calories=daily_cal_goal,
+                        user_timezone=user_timezone
+                    )
+                    logger.info(
+                        f"[ToolService] Time-aware progress: {time_aware['interpretation']} "
+                        f"(actual: {time_aware['actual_progress']:.1%}, "
+                        f"expected: {time_aware['expected_progress']:.1%})"
+                    )
+                except Exception as e:
+                    logger.error(f"[ToolService] Time-aware progress calculation failed: {e}")
+                    # Continue without time-aware data
+
+            response = {
                 "date": target_date.isoformat(),
-                "meal_count": len(result.data),
+                "meal_count": len(result.data) if result.data else 0,
                 "totals": {
                     "calories": round(total_calories),
                     "protein_g": round(total_protein, 1),
@@ -632,13 +651,34 @@ class ToolService:
                     "calories": daily_cal_goal,
                     "protein_g": daily_protein_goal
                 },
-                "progress": {
-                    "calories_percent": round((total_calories / daily_cal_goal * 100) if daily_cal_goal else 0),
-                    "protein_percent": round((total_protein / daily_protein_goal * 100) if daily_protein_goal else 0)
-                }
+                "progress": basic_progress
             }
+
+            # Add time-aware analysis if available
+            if time_aware:
+                response["time_aware_progress"] = {
+                    "actual_progress": time_aware["actual_progress"],
+                    "expected_progress": time_aware["expected_progress"],
+                    "deviation": time_aware["deviation"],
+                    "interpretation": time_aware["interpretation"],
+                    "message_suggestion": time_aware["message_suggestion"],
+                    "time_context": time_aware["time_context"],
+                    "user_local_time": time_aware["user_local_time"]
+                }
+
+            # Add message based on context
+            if not result.data:
+                if time_aware and time_aware["time_context"] == "early_morning":
+                    response["message"] = "Nothing logged yet - great time to start strong! 💪"
+                else:
+                    response["message"] = "No meals logged for this date yet."
+            elif time_aware:
+                response["message"] = time_aware["message_suggestion"]
+
+            return response
+
         except Exception as e:
-            logger.error(f"[ToolService] get_daily_nutrition_summary failed: {e}")
+            logger.error(f"[ToolService] get_daily_nutrition_summary failed: {e}", exc_info=True)
             return {"error": str(e)}
 
     async def _get_recent_meals(self, user_id: str, params: Dict[str, Any]) -> Dict[str, Any]:

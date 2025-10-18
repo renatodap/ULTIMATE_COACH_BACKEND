@@ -140,7 +140,9 @@ class OnboardingService:
 
             # Goals
             'primary_goal': onboarding_data['primary_goal'],
+            'secondary_goal': onboarding_data.get('secondary_goal'),  # Optional secondary goal
             'experience_level': onboarding_data['experience_level'],
+            'fitness_notes': onboarding_data.get('fitness_notes'),  # Optional fitness notes
 
             # Activity & Lifestyle
             'activity_level': onboarding_data['activity_level'],
@@ -193,6 +195,72 @@ class OnboardingService:
         )
 
         return profile_update
+
+    async def save_training_modalities(
+        self,
+        user_id: UUID,
+        training_modalities: list[Dict[str, Any]],
+        user_token: Optional[str] = None
+    ) -> bool:
+        """
+        Save user's selected training modalities to user_training_modalities table.
+
+        Args:
+            user_id: User UUID
+            training_modalities: List of training modality selections
+                                Each item should have: modality_id, proficiency_level, is_primary
+            user_token: Optional JWT token for RLS
+
+        Returns:
+            True if successful, False if failed (non-critical)
+        """
+        if not training_modalities:
+            logger.info(
+                "no_training_modalities_to_save",
+                user_id=str(user_id)
+            )
+            return True
+
+        try:
+            # Prepare records for bulk insert
+            records = []
+            for modality in training_modalities:
+                records.append({
+                    'user_id': str(user_id),
+                    'modality_id': modality['modality_id'],
+                    'proficiency_level': modality['proficiency_level'],
+                    'is_primary': modality.get('is_primary', False),
+                    'willing_to_continue': True,
+                })
+
+            # Bulk insert training modalities
+            result = self.supabase_service.client.table('user_training_modalities').insert(records).execute()
+
+            if result.data:
+                log_event(
+                    "onboarding_training_modalities_saved",
+                    user_id=str(user_id),
+                    modality_count=len(records)
+                )
+                return True
+            else:
+                log_event(
+                    "onboarding_training_modalities_save_failed",
+                    level="warn",
+                    user_id=str(user_id),
+                    error="No data returned from insert"
+                )
+                return False
+
+        except Exception as e:
+            log_event(
+                "onboarding_training_modalities_save_error",
+                level="warn",
+                user_id=str(user_id),
+                error=str(e),
+                modality_count=len(training_modalities)
+            )
+            return False
 
     async def seed_initial_body_metrics(
         self,
@@ -319,7 +387,16 @@ class OnboardingService:
             onboarding_completed=True
         )
 
-        # Step 5: Seed initial body metrics (non-critical)
+        # Step 5: Save training modalities (non-critical)
+        training_modalities = onboarding_data.get('training_modalities', [])
+        if training_modalities:
+            await self.save_training_modalities(
+                user_id,
+                training_modalities,
+                user_token=user_token
+            )
+
+        # Step 6: Seed initial body metrics (non-critical)
         await self.seed_initial_body_metrics(
             user_id,
             onboarding_data['current_weight_kg'],
@@ -331,7 +408,10 @@ class OnboardingService:
             "onboarding_completed",
             user_id=str(user_id),
             primary_goal=onboarding_data['primary_goal'],
-            daily_calories=targets.daily_calories
+            secondary_goal=onboarding_data.get('secondary_goal'),
+            daily_calories=targets.daily_calories,
+            has_fitness_notes=bool(onboarding_data.get('fitness_notes')),
+            training_modalities_count=len(training_modalities)
         )
 
         return updated_profile, targets

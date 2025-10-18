@@ -19,6 +19,118 @@ router = APIRouter()
 
 
 @router.get(
+    "/me/training-modalities",
+    status_code=status.HTTP_200_OK,
+    summary="Get user's training modalities",
+    description="Get the authenticated user's selected training modalities with details",
+)
+async def get_my_training_modalities(user: dict = Depends(get_current_user)) -> JSONResponse:
+    """
+    Get current user's selected training modalities.
+
+    Returns training modalities with proficiency levels and metadata.
+
+    Args:
+        user: Current authenticated user (injected by dependency)
+
+    Returns:
+        List of user's training modalities with details
+    """
+    try:
+        user_id = UUID(user["id"])
+
+        # Fetch user's training modalities with modality details
+        result = supabase_service.client.table('user_training_modalities') \
+            .select('*, training_modalities(id, name, description, icon, display_order)') \
+            .eq('user_id', str(user_id)) \
+            .order('training_modalities(display_order)') \
+            .execute()
+
+        training_modalities = result.data if result.data else []
+
+        logger.info(
+            "user_training_modalities_fetched",
+            user_id=str(user_id),
+            count=len(training_modalities)
+        )
+
+        return JSONResponse(content=training_modalities)
+
+    except Exception as e:
+        logger.error(
+            "user_training_modalities_fetch_error",
+            user_id=user["id"],
+            error=str(e),
+            error_type=type(e).__name__
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch training modalities",
+        )
+
+
+@router.put(
+    "/me/training-modalities",
+    status_code=status.HTTP_200_OK,
+    summary="Update user's training modalities",
+    description="Replace all user's training modalities with new selections",
+)
+async def update_my_training_modalities(
+    training_modalities: list,
+    user: dict = Depends(get_current_user)
+) -> JSONResponse:
+    """
+    Update user's training modalities.
+
+    Replaces all existing selections with new ones.
+
+    Args:
+        training_modalities: List of modality selections with proficiency levels
+        user: Current authenticated user
+
+    Returns:
+        Success message
+    """
+    try:
+        from app.services.onboarding_service import onboarding_service
+
+        user_id = UUID(user["id"])
+
+        # Delete existing training modalities
+        supabase_service.client.table('user_training_modalities') \
+            .delete() \
+            .eq('user_id', str(user_id)) \
+            .execute()
+
+        # Insert new ones if any
+        if training_modalities:
+            await onboarding_service.save_training_modalities(
+                user_id,
+                training_modalities
+            )
+
+        logger.info(
+            "user_training_modalities_updated",
+            user_id=str(user_id),
+            count=len(training_modalities)
+        )
+
+        return JSONResponse(content={"message": "Training modalities updated successfully"})
+
+    except Exception as e:
+        logger.error(
+            "user_training_modalities_update_error",
+            user_id=user["id"],
+            error=str(e),
+            error_type=type(e).__name__
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update training modalities",
+        )
+
+
+@router.get(
     "/me",
     status_code=status.HTTP_200_OK,
     summary="Get current user profile",
@@ -77,9 +189,11 @@ async def get_my_profile(user: dict = Depends(get_current_user)) -> JSONResponse
 
             # Goals & Training
             "primary_goal": profile.get("primary_goal"),
+            "secondary_goal": profile.get("secondary_goal"),
             "experience_level": profile.get("experience_level"),
             "activity_level": profile.get("activity_level"),
             "workout_frequency": profile.get("workout_frequency"),
+            "fitness_notes": profile.get("fitness_notes"),
 
             # Dietary
             "dietary_preference": profile.get("dietary_preference"),
@@ -132,9 +246,11 @@ async def update_my_profile(
     current_weight_kg: Optional[float] = Form(None),
     goal_weight_kg: Optional[float] = Form(None),
     primary_goal: Optional[str] = Form(None),
+    secondary_goal: Optional[str] = Form(None),
     experience_level: Optional[str] = Form(None),
     activity_level: Optional[str] = Form(None),
     workout_frequency: Optional[int] = Form(None),
+    fitness_notes: Optional[str] = Form(None),
     dietary_preference: Optional[str] = Form(None),
     food_allergies: Optional[str] = Form(None),  # Accepts JSON string from form data
     foods_to_avoid: Optional[str] = Form(None),  # Accepts JSON string from form data
@@ -158,9 +274,11 @@ async def update_my_profile(
         current_weight_kg: Current weight in kg
         goal_weight_kg: Goal weight in kg
         primary_goal: Primary fitness goal
+        secondary_goal: Optional secondary fitness goal
         experience_level: Training experience
         activity_level: Daily activity level
         workout_frequency: Workouts per week
+        fitness_notes: Free-text fitness considerations
         dietary_preference: Dietary restrictions
         food_allergies: List of food allergies
         foods_to_avoid: List of foods to avoid
@@ -232,12 +350,16 @@ async def update_my_profile(
             update_data["goal_weight_kg"] = goal_weight_kg
         if primary_goal is not None:
             update_data["primary_goal"] = primary_goal
+        if secondary_goal is not None:
+            update_data["secondary_goal"] = secondary_goal
         if experience_level is not None:
             update_data["experience_level"] = experience_level
         if activity_level is not None:
             update_data["activity_level"] = activity_level
         if workout_frequency is not None:
             update_data["workout_frequency"] = workout_frequency
+        if fitness_notes is not None:
+            update_data["fitness_notes"] = fitness_notes
         if dietary_preference is not None:
             update_data["dietary_preference"] = dietary_preference
         if parsed_food_allergies is not None:
@@ -317,9 +439,11 @@ async def update_my_profile(
             "current_weight_kg": updated_profile.get("current_weight_kg"),
             "goal_weight_kg": updated_profile.get("goal_weight_kg"),
             "primary_goal": updated_profile.get("primary_goal"),
+            "secondary_goal": updated_profile.get("secondary_goal"),
             "experience_level": updated_profile.get("experience_level"),
             "activity_level": updated_profile.get("activity_level"),
             "workout_frequency": updated_profile.get("workout_frequency"),
+            "fitness_notes": updated_profile.get("fitness_notes"),
             "dietary_preference": updated_profile.get("dietary_preference"),
             "food_allergies": updated_profile.get("food_allergies", []),
             "foods_to_avoid": updated_profile.get("foods_to_avoid", []),

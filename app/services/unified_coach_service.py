@@ -1076,13 +1076,61 @@ class UnifiedCoachService:
 
             log_type = extraction["log_type"]
             confidence = extraction["confidence"]
+            classification_conf = extraction.get("classification_confidence", confidence)
+            nutrition_conf = extraction.get("nutrition_confidence", confidence)
+            confidence_breakdown = extraction.get("confidence_breakdown", {})
             structured_data = extraction["structured_data"]
             original_text = extraction["original_text"]
 
             logger.info(
                 f"[UnifiedCoach.log] ✅ Extracted {log_type} "
-                f"(confidence: {confidence:.2f})"
+                f"(classification: {classification_conf:.2f}, nutrition: {nutrition_conf:.2f})"
             )
+
+            # CRITICAL 60% NUTRITION CONFIDENCE CHECK
+            # If nutrition accuracy is uncertain, ask for clarification instead of logging
+            if log_type == "meal" and nutrition_conf < 0.6:
+                logger.info(
+                    f"[UnifiedCoach.log] ⚠️ Low nutrition confidence ({nutrition_conf:.2f}), "
+                    f"asking for clarification"
+                )
+
+                # Build clarification questions
+                clarification_message = self._build_clarification_questions(
+                    structured_data=structured_data,
+                    confidence_breakdown=confidence_breakdown,
+                    user_language=user_language
+                )
+
+                # Save AI clarification message
+                ai_message_id = await self._save_ai_message(
+                    user_id=user_id,
+                    conversation_id=conversation_id,
+                    content=clarification_message,
+                    ai_provider='unified_coach',
+                    ai_model='clarification_system',
+                    tokens_used=0,
+                    cost_usd=0.0,
+                    context_used={
+                        'nutrition_confidence': nutrition_conf,
+                        'needs_clarification': True,
+                        'log_type': log_type
+                    }
+                )
+
+                return {
+                    "success": True,
+                    "conversation_id": conversation_id,
+                    "message_id": ai_message_id,
+                    "is_log_preview": False,  # No preview - need more info first
+                    "message": clarification_message,
+                    "log_preview": None,
+                    "waiting_for_clarification": True,
+                    "nutrition_confidence": nutrition_conf,
+                    "tokens_used": 0,
+                    "cost_usd": 0.0,
+                    "model": "clarification_system"
+                }
 
             # STEP 2: Save to quick_entry_logs table as pending
             quick_entry_result = self.supabase.table("quick_entry_logs").insert({
@@ -1232,6 +1280,95 @@ class UnifiedCoachService:
         }).execute()
 
         return result.data[0]["id"]
+
+    def _build_clarification_questions(
+        self,
+        structured_data: Dict[str, Any],
+        confidence_breakdown: Dict[str, float],
+        user_language: str
+    ) -> str:
+        """
+        Build clarification questions when nutrition confidence is low (<60%).
+
+        Analyzes what information is missing or uncertain and asks targeted questions.
+
+        Args:
+            structured_data: Extracted meal data
+            confidence_breakdown: Breakdown of confidence scores
+            user_language: User's language for i18n
+
+        Returns:
+            Clarification message with specific questions
+        """
+        foods = structured_data.get("foods", [])
+        if not foods:
+            return self.i18n.t('clarification.no_foods_detected', user_language)
+
+        # Build list of questions based on confidence breakdown
+        questions = []
+
+        for idx, food in enumerate(foods):
+            food_name = food.get("name", "this food")
+
+            # Check quantity precision
+            quantity_conf = confidence_breakdown.get("quantity_precision", 1.0)
+            if quantity_conf < 0.5:
+                # Very vague quantity
+                unit = food.get("unit")
+                if unit == "grams" or unit == "g":
+                    questions.append(
+                        f"• How much {food_name}? (in grams or a common serving like '1 piece', '1 cup')"
+                    )
+                elif not food.get("quantity") or food.get("quantity") is None:
+                    questions.append(
+                        f"• How much {food_name} did you have?"
+                    )
+
+            # Check food identification
+            food_id_conf = confidence_breakdown.get("food_identification", 1.0)
+            if food_id_conf < 0.7:
+                # Ambiguous food type
+                questions.append(
+                    f"• What type of {food_name}? (brand, specific variety, or how it was prepared)"
+                )
+
+            # Check preparation/cooking method
+            prep_conf = confidence_breakdown.get("preparation_detail", 1.0)
+            if prep_conf < 0.7:
+                if "chicken" in food_name.lower() or "meat" in food_name.lower():
+                    questions.append(
+                        f"• How was the {food_name} cooked? (grilled, fried, baked, etc.)"
+                    )
+                elif "egg" in food_name.lower():
+                    questions.append(
+                        f"• How were the eggs prepared? (scrambled, fried, boiled, etc.)"
+                    )
+
+        # Build final message
+        if not questions:
+            # Low confidence but no specific issues identified - generic ask
+            food_list = ", ".join([f.get("name", "food") for f in foods])
+            return (
+                f"I detected you ate {food_list}, but I need more details to log it accurately. "
+                f"Can you tell me the quantities and how the food was prepared? 💪"
+            )
+
+        # Build message with specific questions
+        food_list = ", ".join([f.get("name", "food") for f in foods[:2]])  # Show max 2 foods
+        if len(foods) > 2:
+            food_list += f" and {len(foods) - 2} more"
+
+        intro = self.i18n.t('clarification.intro', user_language).format(foods=food_list)
+        if not intro or intro.startswith("Missing"):
+            intro = f"I detected you ate **{food_list}**, but I need more details to log it accurately:\n\n"
+
+        questions_text = "\n".join(questions)
+
+        outro = self.i18n.t('clarification.outro', user_language)
+        if not outro or outro.startswith("Missing"):
+            outro = "\nCan you help me out? This will make sure your log is accurate! 💪"
+
+        return f"{intro}{questions_text}{outro}"
 
     async def _vectorize_message(
         self,
@@ -1621,6 +1758,47 @@ NOT YET WORKING:
 - User asks food nutrition → use search_food_database
 
 Don't make assumptions - get REAL data with tools before answering!
+
+**TIME-AWARE COACHING** (NEW - USE THIS!):
+The get_daily_nutrition_summary tool now returns TIME-AWARE progress analysis.
+This prevents you from saying "you're behind!" when user just woke up.
+
+Example tool response:
+```json
+{
+  "totals": {"calories": 500},
+  "goals": {"calories": 3000},
+  "time_aware_progress": {
+    "actual_progress": 0.167,  // 16.7%
+    "expected_progress": 0.0,   // 0% expected at 6 AM
+    "interpretation": "ahead_of_schedule",
+    "message_suggestion": "You're crushing it! 500 cal already at 6 AM..."
+  }
+}
+```
+
+CRITICAL RULES FOR TIME-AWARE COACHING:
+1. If time_aware_progress exists, USE IT instead of simple percentages
+2. At 6 AM with 500 cal → SAY "great start!" NOT "you're way behind!"
+3. At 2 PM with 500 cal → SAY "time to eat!" NOT "you're crushing it!"
+4. Use the "interpretation" field to guide your response tone
+5. Use the "message_suggestion" as a starting point (but make it yours)
+
+Interpretations and how to respond:
+- "ahead_of_schedule": Acknowledge early progress positively
+- "slightly_ahead": Keep it going, on track
+- "slightly_behind": Motivate without nagging, plenty of time left
+- "significantly_behind": Push harder, running out of time
+- "goal_achieved": Celebrate completion
+- "close_to_goal": Solid day, almost there
+- "missed_goal": Tomorrow's a new day, learn from it
+
+Example responses:
+❌ BAD (ignoring time): "You're at 17% of your goal. WAY behind!"
+✅ GOOD (time-aware): "500 cal at 6 AM? Solid start. Keep that energy."
+
+❌ BAD (ignoring time): "Only 500 calories? You need to eat more!"
+✅ GOOD (time-aware at 2 PM): "500 cal by 2 PM. Time to fuel up - you need 2500 more to hit 3000."
 </tools>
 
 Remember: You're INTENSE but SMART. Science-backed intensity. Let's GO! 💪🔥

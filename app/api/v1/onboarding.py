@@ -114,6 +114,16 @@ def _extract_user_jwt(request: Request, user_id: str) -> Optional[str]:
 # REQUEST MODELS
 # ============================================================================
 
+class TrainingModalitySelection(BaseModel):
+    """User's selected training modality with proficiency level."""
+    modality_id: str = Field(..., description="UUID of selected training modality")
+    proficiency_level: Literal['beginner', 'intermediate', 'advanced', 'expert'] = Field(
+        ...,
+        description="User's proficiency level in this modality"
+    )
+    is_primary: bool = Field(default=False, description="Whether this is the user's primary modality")
+
+
 class OnboardingData(BaseModel):
     """Complete onboarding data from all 6 steps."""
 
@@ -122,11 +132,28 @@ class OnboardingData(BaseModel):
         ...,
         description="Primary fitness goal"
     )
+    secondary_goal: Optional[Literal['lose_weight', 'build_muscle', 'maintain', 'improve_performance']] = Field(
+        default=None,
+        description="Optional secondary fitness goal"
+    )
     experience_level: Literal['beginner', 'intermediate', 'advanced'] = Field(
         ...,
         description="Fitness experience level"
     )
     workout_frequency: int = Field(..., ge=0, le=7, description="Workouts per week")
+
+    # Training Modalities (Step 3.5)
+    training_modalities: List[TrainingModalitySelection] = Field(
+        default_factory=list,
+        description="User's selected training modalities with proficiency levels"
+    )
+
+    # Fitness Notes (Step 4)
+    fitness_notes: Optional[str] = Field(
+        default=None,
+        max_length=1000,
+        description="Free-text fitness considerations (injuries, preferences, etc.)"
+    )
 
     # Step 2: Physical Stats (ALWAYS IN METRIC - frontend converts if needed)
     birth_date: Optional[date] = Field(default=None, description="Birth date (YYYY-MM-DD)")
@@ -165,6 +192,15 @@ class OnboardingData(BaseModel):
         description="Preferred measurement system"
     )
     timezone: str = Field(default="America/New_York")
+
+    @field_validator('secondary_goal')
+    @classmethod
+    def validate_secondary_goal(cls, v: Optional[str], info) -> Optional[str]:
+        """Ensure secondary_goal is different from primary_goal."""
+        if v is not None and 'primary_goal' in info.data:
+            if v == info.data['primary_goal']:
+                raise ValueError('secondary_goal must be different from primary_goal')
+        return v
 
     @field_validator('goal_weight_kg')
     @classmethod
