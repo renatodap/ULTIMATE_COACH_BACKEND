@@ -218,12 +218,15 @@ async def confirm_log(
 
                 try:
                     transformer = get_meal_item_transformer()
-                    items = await transformer.transform_foods_to_items(
+                    items, missing_foods = await transformer.transform_foods_to_items(
                         foods=structured_data["foods"],
                         user_id=user_id
                     )
 
-                    logger.info(f"[CoachAPI] ✅ Transformed to {len(items)} meal items")
+                    logger.info(
+                        f"[CoachAPI] ✅ Transformed to {len(items)} meal items "
+                        f"({len(missing_foods)} missing)"
+                    )
 
                     # Update structured_data with transformed items for storage
                     structured_data["items"] = items
