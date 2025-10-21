@@ -60,7 +60,7 @@ async def generate_program(
     """
     logger.info(
         "generate_program_request",
-        user_id=current_user.id,
+        user_id=current_user['id'],
         duration_weeks=request.program_duration_weeks,
     )
 
@@ -82,7 +82,7 @@ async def generate_program(
         profile_result = (
             client.table("profiles")
             .select("*")
-            .eq("id", current_user.id)
+            .eq("id", current_user['id'])
             .single()
             .execute()
         )
@@ -107,7 +107,7 @@ async def generate_program(
             existing_program = (
                 client.table("programs")
                 .select("id, created_at")
-                .eq("user_id", current_user.id)
+                .eq("user_id", current_user['id'])
                 .order("created_at", desc=True)
                 .limit(1)
                 .execute()
@@ -121,7 +121,7 @@ async def generate_program(
 
         logger.info(
             "converting_onboarding_to_consultation",
-            user_id=current_user.id,
+            user_id=current_user['id'],
             primary_goal=profile.get("primary_goal"),
         )
 
@@ -168,7 +168,7 @@ async def generate_program(
 
         logger.info(
             "generating_program",
-            user_id=current_user.id,
+            user_id=current_user['id'],
             duration_weeks=options.program_duration_weeks,
         )
 
@@ -180,19 +180,19 @@ async def generate_program(
         # Store program in database
         program_id = await storage_service.store_program_bundle(
             program_bundle=program_bundle.model_dump(),
-            user_id=current_user.id,
+            user_id=current_user['id'],
         )
 
         logger.info(
             "program_generated_successfully",
             program_id=program_id,
-            user_id=current_user.id,
+            user_id=current_user['id'],
             warnings_count=len(warnings),
         )
 
         return ProgramResponse(
             program_id=program_id,
-            user_id=current_user.id,
+            user_id=current_user['id'],
             primary_goal=program_bundle.primary_goal,
             program_start_date=program_bundle.created_at.date().isoformat(),
             next_reassessment_date=(
@@ -207,7 +207,7 @@ async def generate_program(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("generate_program_failed", error=str(e), user_id=current_user.id, exc_info=True)
+        logger.error("generate_program_failed", error=str(e), user_id=current_user['id'], exc_info=True)
         raise HTTPException(status_code=500, detail=f"Program generation failed: {str(e)}")
 
 
@@ -224,7 +224,7 @@ async def get_current_program(
         - Nutrition plan (daily meals)
         - Next reassessment date
     """
-    logger.info("get_current_program", user_id=current_user.id)
+    logger.info("get_current_program", user_id=current_user['id'])
 
     storage_service = ProgramStorageService()
 
@@ -235,7 +235,7 @@ async def get_current_program(
         result = (
             client.table("programs")
             .select("*")
-            .eq("user_id", current_user.id)
+            .eq("user_id", current_user['id'])
             .order("created_at", desc=True)
             .limit(1)
             .execute()
@@ -283,7 +283,7 @@ async def get_current_program(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("get_current_program_failed", error=str(e), user_id=current_user.id)
+        logger.error("get_current_program_failed", error=str(e), user_id=current_user['id'])
         raise HTTPException(status_code=500, detail=f"Failed to fetch program: {e}")
 
 
@@ -302,7 +302,7 @@ async def get_todays_plan(
     """
     from datetime import date
 
-    logger.info("get_todays_plan", user_id=current_user.id)
+    logger.info("get_todays_plan", user_id=current_user['id'])
 
     storage_service = ProgramStorageService()
 
@@ -314,7 +314,7 @@ async def get_todays_plan(
         events_result = (
             client.table("calendar_events")
             .select("*")
-            .eq("user_id", current_user.id)
+            .eq("user_id", current_user['id'])
             .eq("date", today.isoformat())
             .execute()
         )
@@ -323,7 +323,7 @@ async def get_todays_plan(
         overrides_result = (
             client.table("day_overrides")
             .select("*")
-            .eq("user_id", current_user.id)
+            .eq("user_id", current_user['id'])
             .eq("date", today.isoformat())
             .execute()
         )
@@ -335,7 +335,7 @@ async def get_todays_plan(
         }
 
     except Exception as e:
-        logger.error("get_todays_plan_failed", error=str(e), user_id=current_user.id)
+        logger.error("get_todays_plan_failed", error=str(e), user_id=current_user['id'])
         raise HTTPException(status_code=500, detail=f"Failed to fetch today's plan: {e}")
 
 
@@ -355,7 +355,7 @@ async def get_current_program_week(
     """
     from datetime import date
 
-    logger.info("get_current_program_week", user_id=current_user.id)
+    logger.info("get_current_program_week", user_id=current_user['id'])
 
     storage_service = ProgramStorageService()
 
@@ -366,7 +366,7 @@ async def get_current_program_week(
         program_result = (
             client.table("programs")
             .select("*")
-            .eq("user_id", current_user.id)
+            .eq("user_id", current_user['id'])
             .order("created_at", desc=True)
             .limit(1)
             .execute()
@@ -417,5 +417,5 @@ async def get_current_program_week(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("get_current_program_week_failed", error=str(e), user_id=current_user.id)
+        logger.error("get_current_program_week_failed", error=str(e), user_id=current_user['id'])
         raise HTTPException(status_code=500, detail=f"Failed to get program week: {e}")
