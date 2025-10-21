@@ -42,7 +42,6 @@ class ProgramResponse(BaseModel):
 async def generate_program(
     request: GenerateProgramRequest,
     current_user: dict = Depends(get_current_user),
-    storage_service: ProgramStorageService = Depends(),
 ):
     """
     Generate a complete fitness program for the current user.
@@ -64,6 +63,8 @@ async def generate_program(
         user_id=current_user.id,
         duration_weeks=request.program_duration_weeks,
     )
+
+    storage_service = ProgramStorageService()
 
     try:
         # Import here to avoid circular dependency
@@ -213,7 +214,6 @@ async def generate_program(
 @router.get("/programs/current")
 async def get_current_program(
     current_user: dict = Depends(get_current_user),
-    storage_service: ProgramStorageService = Depends(),
 ):
     """
     Get the user's current active program.
@@ -225,6 +225,8 @@ async def get_current_program(
         - Next reassessment date
     """
     logger.info("get_current_program", user_id=current_user.id)
+
+    storage_service = ProgramStorageService()
 
     try:
         client = storage_service.db.client
@@ -288,7 +290,6 @@ async def get_current_program(
 @router.get("/programs/today")
 async def get_todays_plan(
     current_user: dict = Depends(get_current_user),
-    storage_service: ProgramStorageService = Depends(),
 ):
     """
     Get today's planned sessions and meals.
@@ -302,6 +303,8 @@ async def get_todays_plan(
     from datetime import date
 
     logger.info("get_todays_plan", user_id=current_user.id)
+
+    storage_service = ProgramStorageService()
 
     try:
         client = storage_service.db.client
@@ -339,7 +342,6 @@ async def get_todays_plan(
 @router.get("/programs/current-week")
 async def get_current_program_week(
     current_user: dict = Depends(get_current_user),
-    storage_service: ProgramStorageService = Depends(),
 ):
     """
     Get current week and day index within the active program.
@@ -354,6 +356,8 @@ async def get_current_program_week(
     from datetime import date
 
     logger.info("get_current_program_week", user_id=current_user.id)
+
+    storage_service = ProgramStorageService()
 
     try:
         client = storage_service.db.client
