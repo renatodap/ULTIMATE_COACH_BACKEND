@@ -59,6 +59,9 @@ class UnifiedCoachService:
         from app.services.security_service import get_security_service
         from app.services.response_formatter_service import get_response_formatter
         from app.services.log_extraction_service import get_log_extraction_service
+        from app.services.log_preview_enrichment_service import get_log_preview_enrichment_service
+        from app.services.activity_preview_enrichment_service import get_activity_preview_enrichment_service
+        from app.services.measurement_preview_enrichment_service import get_measurement_preview_enrichment_service
 
         # Create sync Anthropic client for classifier
         try:
@@ -83,6 +86,9 @@ class UnifiedCoachService:
         self.security = get_security_service(self.cache)
         self.formatter = get_response_formatter(sync_anthropic_client)
         self.log_extractor = get_log_extraction_service(sync_anthropic_client)
+        self.log_enricher = get_log_preview_enrichment_service(supabase_client)
+        self.activity_enricher = get_activity_preview_enrichment_service(supabase_client)
+        self.measurement_enricher = get_measurement_preview_enrichment_service(supabase_client)
 
         # AI client
         self.anthropic = anthropic_client  # AsyncAnthropic client for Claude chat
@@ -690,7 +696,8 @@ class UnifiedCoachService:
             # STEP 1: Extract and save log data (same as LOG mode)
             extraction = await self.log_extractor.extract_log_data(
                 message=message,
-                user_id=user_id
+                user_id=user_id,
+                image_base64=image_base64
             )
 
             if not extraction:
@@ -707,35 +714,88 @@ class UnifiedCoachService:
                     user_language=user_language
                 )
 
-            log_type = extraction["log_type"]
-            confidence = extraction["confidence"]
-            structured_data = extraction["structured_data"]
-            original_text = extraction["original_text"]
+            # extraction is now an ARRAY - process ALL logs (same as LOG mode)
+            logger.info(f"[UnifiedCoach.logQ] 📦 Processing ALL {len(extraction)} log(s)...")
 
-            logger.info(
-                f"[UnifiedCoach.logQ] ✅ Extracted {log_type} (confidence: {confidence:.2f})"
-            )
+            log_previews = []
 
-            # STEP 2: Save log to quick_entry_logs as pending
-            quick_entry_result = self.supabase.table("quick_entry_logs").insert({
-                "user_id": user_id,
-                "conversation_id": conversation_id,
-                "message_id": user_message_id,
-                "log_type": log_type,
-                "original_text": original_text,
-                "confidence": confidence,
-                "structured_data": structured_data,
-                "status": "pending",
-                "classifier_model": "llama-3.3-70b-versatile",
-                "classifier_cost_usd": 0.0001,
-                "extraction_model": "llama-3.3-70b-versatile",
-                "extraction_cost_usd": 0.0003
-            }).execute()
+            for idx, log_data in enumerate(extraction):
+                log_type = log_data["log_type"]
+                confidence = log_data["confidence"]
+                structured_data = log_data["structured_data"]
+                original_text = log_data["original_text"]
 
-            quick_entry_id = quick_entry_result.data[0]["id"]
-            logger.info(f"[UnifiedCoach.logQ] 💾 Saved quick entry: {quick_entry_id[:8]}...")
+                logger.info(
+                    f"[UnifiedCoach.logQ] Processing log {idx+1}/{len(extraction)}: {log_type} "
+                    f"(confidence: {confidence:.2f})"
+                )
 
-            # STEP 3: Route to Claude to answer the question
+                # STEP 2: Enrichment (same logic as LOG mode)
+                try:
+                    if log_type == "meal":
+                        # Enrich with food matching
+                        enriched_data, warnings = await self.log_enricher.enrich_meal_preview(
+                            structured_data=structured_data,
+                            user_id=user_id
+                        )
+                        structured_data = enriched_data
+                        if warnings:
+                            logger.warning(f"[UnifiedCoach.logQ] ⚠️ Log {idx+1}: Enrichment warnings: {warnings}")
+
+                    elif log_type == "activity":
+                        # Enrich with personalization
+                        enriched_data, warnings = await self.activity_enricher.enrich_activity_preview(
+                            structured_data=structured_data,
+                            user_id=user_id
+                        )
+                        structured_data = enriched_data
+                        if warnings:
+                            logger.warning(f"[UnifiedCoach.logQ] ⚠️ Log {idx+1}: Enrichment warnings: {warnings}")
+
+                    elif log_type == "measurement":
+                        # Enrich with trend analysis
+                        enriched_data, warnings = await self.measurement_enricher.enrich_measurement_preview(
+                            structured_data=structured_data,
+                            user_id=user_id
+                        )
+                        structured_data = enriched_data
+                        if warnings:
+                            logger.warning(f"[UnifiedCoach.logQ] ⚠️ Log {idx+1}: Validation warnings: {warnings}")
+
+                except Exception as e:
+                    logger.warning(f"[UnifiedCoach.logQ] ⚠️ Log {idx+1} enrichment failed: {e}")
+
+                # STEP 3: Save to quick_entry_logs
+                quick_entry_result = self.supabase.table("quick_entry_logs").insert({
+                    "user_id": user_id,
+                    "conversation_id": conversation_id,
+                    "message_id": user_message_id,
+                    "log_type": log_type,
+                    "original_text": original_text,
+                    "confidence": confidence,
+                    "structured_data": structured_data,
+                    "status": "pending",
+                    "classifier_model": "claude-3-5-haiku-20241022",
+                    "classifier_cost_usd": 0.0001,
+                    "extraction_model": "claude-3-5-haiku-20241022",
+                    "extraction_cost_usd": 0.0003
+                }).execute()
+
+                quick_entry_id = quick_entry_result.data[0]["id"]
+                logger.info(f"[UnifiedCoach.logQ] 💾 Log {idx+1}: Saved quick_entry {quick_entry_id[:8]}...")
+
+                # Add to log_previews array
+                log_previews.append({
+                    "quick_entry_id": quick_entry_id,
+                    "log_type": log_type,
+                    "original_text": original_text,
+                    "confidence": confidence,
+                    "structured_data": structured_data
+                })
+
+            logger.info(f"[UnifiedCoach.logQ] ✅ All {len(log_previews)} log(s) processed and saved")
+
+            # STEP 4: Route to Claude to answer the question
             # Use the FULL message (Claude will understand context: "I ate X. Was that enough?")
             logger.info("[UnifiedCoach.logQ] 🧠 Now routing to Claude to answer question...")
 
@@ -749,24 +809,22 @@ class UnifiedCoachService:
                 user_language=user_language
             )
 
-            # STEP 4: Combine log preview + chat answer
-            logger.info("[UnifiedCoach.logQ] ✅ Returning BOTH log preview + answer")
+            # STEP 5: Combine log previews + chat answer
+            logger.info(f"[UnifiedCoach.logQ] ✅ Returning {len(log_previews)} log preview(s) + chat answer")
 
             return {
                 "success": True,
                 "conversation_id": conversation_id,
                 "message_id": chat_response["message_id"],  # Use AI response message ID
-                "is_log_preview": True,  # TRUE - frontend shows log card
+                "is_log_preview": True,  # TRUE - frontend shows log card(s)
                 "message": chat_response["message"],  # ALSO include chat response
-                "log_preview": {
-                    "quick_entry_id": quick_entry_id,
-                    "log_type": log_type,
-                    "original_text": original_text,
-                    "confidence": confidence,
-                    "structured_data": structured_data
-                },
-                "tokens_used": 150 + chat_response["tokens_used"],  # Extraction + Chat
-                "cost_usd": 0.0004 + chat_response["cost_usd"],  # Combined cost
+                "log_previews": log_previews,  # NEW: Support multi-logging in dual-intent
+                "multi_log": len(log_previews) > 1,
+                "log_count": len(log_previews),
+                # Backward compatibility for single log
+                "log_preview": log_previews[0] if len(log_previews) == 1 else None,
+                "tokens_used": 150 * len(log_previews) + chat_response["tokens_used"],  # Extraction + Chat
+                "cost_usd": 0.0004 * len(log_previews) + chat_response["cost_usd"],  # Combined cost
                 "model": chat_response["model"],
                 "complexity": "complex",  # Always complex (Claude used)
                 "dual_intent": True  # Flag for frontend
@@ -811,10 +869,11 @@ class UnifiedCoachService:
         logger.info(f"[UnifiedCoach.log] 📝 START - type: {classification['log_type']}")
 
         try:
-            # STEP 1: Extract structured data using Groq
+            # STEP 1: Extract structured data with photo analysis support
             extraction = await self.log_extractor.extract_log_data(
                 message=message,
-                user_id=user_id
+                user_id=user_id,
+                image_base64=image_base64
             )
 
             if not extraction:
@@ -831,31 +890,29 @@ class UnifiedCoachService:
                     user_language=user_language
                 )
 
-            log_type = extraction["log_type"]
-            confidence = extraction["confidence"]
-            classification_conf = extraction.get("classification_confidence", confidence)
-            nutrition_conf = extraction.get("nutrition_confidence", confidence)
-            confidence_breakdown = extraction.get("confidence_breakdown", {})
-            structured_data = extraction["structured_data"]
-            original_text = extraction["original_text"]
+            # extraction is now an ARRAY (multi-logging support)
+            logger.info(f"[UnifiedCoach.log] 📦 Processing {len(extraction)} log(s)...")
 
-            logger.info(
-                f"[UnifiedCoach.log] ✅ Extracted {log_type} "
-                f"(classification: {classification_conf:.2f}, nutrition: {nutrition_conf:.2f})"
-            )
+            # STEP 1: Check for clarification needed (process first log only for simplicity)
+            # If first log needs clarification, ask for it (don't process remaining logs yet)
+            first_log = extraction[0]
+            first_log_type = first_log["log_type"]
+            first_nutrition_conf = first_log.get("nutrition_confidence", first_log["confidence"])
+            first_confidence_breakdown = first_log.get("confidence_breakdown", {})
+            first_structured_data = first_log["structured_data"]
 
             # CRITICAL 60% NUTRITION CONFIDENCE CHECK
             # If nutrition accuracy is uncertain, ask for clarification instead of logging
-            if log_type == "meal" and nutrition_conf < 0.6:
+            if first_log_type == "meal" and first_nutrition_conf < 0.6:
                 logger.info(
-                    f"[UnifiedCoach.log] ⚠️ Low nutrition confidence ({nutrition_conf:.2f}), "
+                    f"[UnifiedCoach.log] ⚠️ Low nutrition confidence ({first_nutrition_conf:.2f}), "
                     f"asking for clarification"
                 )
 
                 # Build clarification questions
                 clarification_message = self._build_clarification_questions(
-                    structured_data=structured_data,
-                    confidence_breakdown=confidence_breakdown,
+                    structured_data=first_structured_data,
+                    confidence_breakdown=first_confidence_breakdown,
                     user_language=user_language
                 )
 
@@ -869,9 +926,9 @@ class UnifiedCoachService:
                     tokens_used=0,
                     cost_usd=0.0,
                     context_used={
-                        'nutrition_confidence': nutrition_conf,
+                        'nutrition_confidence': first_nutrition_conf,
                         'needs_clarification': True,
-                        'log_type': log_type
+                        'log_type': first_log_type
                     }
                 )
 
@@ -883,48 +940,156 @@ class UnifiedCoachService:
                     "message": clarification_message,
                     "log_preview": None,
                     "waiting_for_clarification": True,
-                    "nutrition_confidence": nutrition_conf,
+                    "nutrition_confidence": first_nutrition_conf,
                     "tokens_used": 0,
                     "cost_usd": 0.0,
                     "model": "clarification_system"
                 }
 
-            # STEP 2: Save to quick_entry_logs table as pending
-            quick_entry_result = self.supabase.table("quick_entry_logs").insert({
-                "user_id": user_id,
-                "conversation_id": conversation_id,
-                "message_id": user_message_id,
-                "log_type": log_type,
-                "original_text": original_text,
-                "confidence": confidence,
-                "structured_data": structured_data,
-                "status": "pending",
-                "classifier_model": "llama-3.3-70b-versatile",
-                "classifier_cost_usd": 0.0001,  # ~$0.0001 for classification + extraction
-                "extraction_model": "llama-3.3-70b-versatile",
-                "extraction_cost_usd": 0.0003
-            }).execute()
+            # STEP 1.5: Process EACH log (multi-logging support)
+            # Enrich with nutrition/calories, create quick_entry for each
+            log_previews = []
 
-            quick_entry_id = quick_entry_result.data[0]["id"]
-            logger.info(f"[UnifiedCoach.log] 💾 Saved quick entry: {quick_entry_id[:8]}...")
+            for idx, log in enumerate(extraction):
+                log_type = log["log_type"]
+                confidence = log["confidence"]
+                classification_conf = log.get("classification_confidence", confidence)
+                nutrition_conf = log.get("nutrition_confidence", confidence)
+                structured_data = log["structured_data"]
+                original_text = log["original_text"]
 
-            # STEP 3: Return preview for frontend confirmation
+                logger.info(
+                    f"[UnifiedCoach.log] 📝 Log {idx+1}/{len(extraction)}: {log_type} "
+                    f"(classification: {classification_conf:.2f}, nutrition: {nutrition_conf:.2f})"
+                )
+
+                # Enrich structured_data with food matching and nutrition calculations
+                # This provides immediate value in the preview (user sees matched foods, alternatives, and totals)
+                try:
+                    if log_type == "meal":
+                        # STEP 1: Match foods from database with alternatives and calculate nutrition
+                        logger.info(f"[UnifiedCoach.log] 🔍 Log {idx+1}: Matching foods from database...")
+
+                        enriched_data, warnings = await self.log_enricher.enrich_meal_preview(
+                            structured_data=structured_data,
+                            user_id=user_id
+                        )
+
+                        # Replace structured_data with enriched version
+                        structured_data = enriched_data
+
+                        # Log any warnings (low confidence matches, missing foods)
+                        if warnings:
+                            logger.warning(
+                                f"[UnifiedCoach.log] ⚠️ Log {idx+1}: Enrichment warnings: {warnings}"
+                            )
+
+                        # Log enrichment results
+                        if structured_data.get("nutrition_summary"):
+                            total_cals = structured_data["nutrition_summary"].get("calories", 0)
+                            matched_count = len(structured_data.get("items", []))
+                            missing_count = len(structured_data.get("missing_foods", []))
+                            logger.info(
+                                f"[UnifiedCoach.log] ✅ Log {idx+1}: Enrichment complete - "
+                                f"{total_cals} cal, {matched_count} matched, {missing_count} missing"
+                            )
+
+                    elif log_type == "activity":
+                        # Enrich activity preview with personalization
+                        logger.info(f"[UnifiedCoach.log] 🏃 Log {idx+1}: Enriching activity with personalization...")
+
+                        enriched_data, warnings = await self.activity_enricher.enrich_activity_preview(
+                            structured_data=structured_data,
+                            user_id=user_id
+                        )
+                        structured_data = enriched_data
+
+                        if warnings:
+                            logger.warning(f"[UnifiedCoach.log] ⚠️ Log {idx+1}: Enrichment warnings: {warnings}")
+
+                        if structured_data.get("personalized_calories"):
+                            estimated_calories = structured_data["personalized_calories"]["estimated"]
+                            method = structured_data["personalized_calories"]["calculation_method"]
+                            logger.info(
+                                f"[UnifiedCoach.log] ✅ Log {idx+1}: Personalized calories: ~{estimated_calories} cal "
+                                f"(method: {method})"
+                            )
+
+                    elif log_type == "measurement":
+                        # Enrich measurement preview with trend analysis and validation
+                        logger.info(f"[UnifiedCoach.log] ⚖️ Log {idx+1}: Enriching measurement with trend analysis...")
+
+                        enriched_data, warnings = await self.measurement_enricher.enrich_measurement_preview(
+                            structured_data=structured_data,
+                            user_id=user_id
+                        )
+                        structured_data = enriched_data
+
+                        if warnings:
+                            logger.warning(f"[UnifiedCoach.log] ⚠️ Log {idx+1}: Validation warnings: {warnings}")
+
+                        if structured_data.get("trend_analysis"):
+                            trend = structured_data["trend_analysis"]
+                            change_text = trend["change_from_last"]["display_text"]
+                            logger.info(
+                                f"[UnifiedCoach.log] ✅ Log {idx+1}: Trend analysis complete: {change_text}"
+                            )
+
+                        if structured_data.get("validation", {}).get("is_likely_typo"):
+                            suggested = structured_data["validation"]["suggested_value"]
+                            logger.warning(
+                                f"[UnifiedCoach.log] 🚨 Log {idx+1}: LIKELY TYPO DETECTED - "
+                                f"suggested: {suggested} kg"
+                            )
+
+                except Exception as e:
+                    # Don't fail the whole log process if enrichment fails
+                    logger.warning(f"[UnifiedCoach.log] ⚠️ Log {idx+1} enrichment failed: {e}")
+                    # Continue without enriched data
+
+                # STEP 2: Create quick_entry_log for this log
+                quick_entry_result = self.supabase.table("quick_entry_logs").insert({
+                    "user_id": user_id,
+                    "conversation_id": conversation_id,
+                    "message_id": user_message_id,
+                    "log_type": log_type,
+                    "original_text": original_text,
+                    "confidence": confidence,
+                    "structured_data": structured_data,
+                    "status": "pending",
+                    "classifier_model": "claude-3-5-haiku-20241022",
+                    "classifier_cost_usd": 0.0001,
+                    "extraction_model": "claude-3-5-haiku-20241022",
+                    "extraction_cost_usd": 0.0003
+                }).execute()
+
+                quick_entry_id = quick_entry_result.data[0]["id"]
+                logger.info(f"[UnifiedCoach.log] 💾 Log {idx+1}: Saved quick_entry {quick_entry_id[:8]}...")
+
+                # Add to log_previews array
+                log_previews.append({
+                    "quick_entry_id": quick_entry_id,
+                    "log_type": log_type,
+                    "original_text": original_text,
+                    "confidence": confidence,
+                    "structured_data": structured_data
+                })
+
+            # STEP 3: Return preview(s) for frontend confirmation
+            logger.info(f"[UnifiedCoach.log] ✅ Returning {len(log_previews)} preview(s)")
+
             return {
                 "success": True,
                 "conversation_id": conversation_id,
                 "message_id": user_message_id,
                 "is_log_preview": True,
                 "message": None,
-                "log_preview": {
-                    "quick_entry_id": quick_entry_id,
-                    "log_type": log_type,
-                    "original_text": original_text,
-                    "confidence": confidence,
-                    "structured_data": structured_data
-                },
-                "tokens_used": 150,  # Approximate for extraction
-                "cost_usd": 0.0004,
-                "model": "llama-3.3-70b-versatile"
+                "log_previews": log_previews,  # PLURAL - array of previews
+                "multi_log": len(log_previews) > 1,  # Flag for frontend
+                "log_count": len(log_previews),
+                "tokens_used": 150 * len(log_previews),  # Approximate per log
+                "cost_usd": 0.0004 * len(log_previews),
+                "model": "claude-3-5-haiku-20241022"
             }
 
         except Exception as e:
@@ -1066,13 +1231,40 @@ class UnifiedCoachService:
 
         for idx, food in enumerate(foods):
             food_name = food.get("name", "this food")
+            food_lower = food_name.lower()
 
-            # Check quantity precision
+            # Check quantity precision - WITH SMART SUGGESTIONS
             quantity_conf = confidence_breakdown.get("quantity_precision", 1.0)
             if quantity_conf < 0.5:
-                # Very vague quantity
+                # Very vague quantity - suggest typical portions
                 unit = food.get("unit")
-                if unit == "grams" or unit == "g":
+
+                # Smart portion suggestions based on common foods
+                if "chicken" in food_lower and "breast" in food_lower:
+                    questions.append(
+                        f"• How much {food_name}? (About 200g? Or 1 whole breast?)"
+                    )
+                elif "chicken" in food_lower:
+                    questions.append(
+                        f"• How much {food_name}? (About 150-200g? Or 1 piece?)"
+                    )
+                elif "rice" in food_lower:
+                    questions.append(
+                        f"• How much {food_name}? (About 1 cup cooked? Half cup? Fist-sized?)"
+                    )
+                elif "egg" in food_lower:
+                    questions.append(
+                        f"• How many eggs? (2-3 eggs?)"
+                    )
+                elif "oatmeal" in food_lower or "oats" in food_lower:
+                    questions.append(
+                        f"• How much {food_name}? (About 1 cup cooked? Or 50g dry?)"
+                    )
+                elif "protein powder" in food_lower or "protein shake" in food_lower:
+                    questions.append(
+                        f"• How many scoops of {food_name}? (Usually 1-2 scoops)"
+                    )
+                elif unit == "grams" or unit == "g":
                     questions.append(
                         f"• How much {food_name}? (in grams or a common serving like '1 piece', '1 cup')"
                     )
@@ -1081,24 +1273,45 @@ class UnifiedCoachService:
                         f"• How much {food_name} did you have?"
                     )
 
-            # Check food identification
+            # Check food identification - MORE SPECIFIC
             food_id_conf = confidence_breakdown.get("food_identification", 1.0)
             if food_id_conf < 0.7:
-                # Ambiguous food type
-                questions.append(
-                    f"• What type of {food_name}? (brand, specific variety, or how it was prepared)"
-                )
+                # Ambiguous food type - ask for specifics
+                if "meat" in food_lower:
+                    questions.append(
+                        f"• What type of meat? (chicken, beef, pork, turkey?)"
+                    )
+                elif "fish" in food_lower:
+                    questions.append(
+                        f"• What kind of fish? (salmon, tuna, cod, tilapia?)"
+                    )
+                elif "protein" in food_lower and "powder" not in food_lower:
+                    questions.append(
+                        f"• What protein source? (chicken, eggs, fish, beef?)"
+                    )
+                else:
+                    questions.append(
+                        f"• What type of {food_name}? (brand, specific variety, or how it was prepared)"
+                    )
 
-            # Check preparation/cooking method
+            # Check preparation/cooking method - EXPLAIN WHY IT MATTERS
             prep_conf = confidence_breakdown.get("preparation_detail", 1.0)
             if prep_conf < 0.7:
-                if "chicken" in food_name.lower() or "meat" in food_name.lower():
+                if "chicken" in food_lower or "meat" in food_lower:
                     questions.append(
-                        f"• How was the {food_name} cooked? (grilled, fried, baked, etc.)"
+                        f"• How was the {food_name} cooked? (grilled, fried, baked - this affects calories by 50-100 cal)"
                     )
-                elif "egg" in food_name.lower():
+                elif "egg" in food_lower:
                     questions.append(
-                        f"• How were the eggs prepared? (scrambled, fried, boiled, etc.)"
+                        f"• How were the eggs prepared? (scrambled with butter adds ~50 cal vs boiled)"
+                    )
+                elif "fish" in food_lower:
+                    questions.append(
+                        f"• How was the {food_name} cooked? (grilled, fried, baked - fried adds significant calories)"
+                    )
+                elif "potato" in food_lower:
+                    questions.append(
+                        f"• How were the potatoes prepared? (baked, fried, mashed - huge calorie difference)"
                     )
 
         # Build final message
@@ -1556,7 +1769,314 @@ Example responses:
 
 ❌ BAD (ignoring time): "Only 500 calories? You need to eat more!"
 ✅ GOOD (time-aware at 2 PM): "500 cal by 2 PM. Time to fuel up - you need 2500 more to hit 3000."
+
+**STRATEGIC TOOL CALLING - MULTI-STEP INTELLIGENCE:**
+
+Some questions need MULTIPLE tools in sequence. Think strategically:
+
+Q: "How am I doing this week?"
+→ Step 1: get_body_measurements (check weight trend)
+→ Step 2: get_recent_meals (check nutrition consistency)
+→ Step 3: calculate_progress_trend (analyze overall trajectory)
+→ Step 4: Synthesize: "Weight's down 1.2 lbs, protein averaged 160g (above target), on track."
+
+Q: "What should I eat for dinner?"
+→ Step 1: get_daily_nutrition_summary (what's left today?)
+→ Step 2: get_user_profile (any restrictions? goals?)
+→ Step 3: Suggest meal: "You need 80g protein, 500 cal. Try 200g salmon with veggies."
+
+Q: "Did I hit my protein target yesterday?"
+→ Step 1: get_recent_meals (days=1, get yesterday's data)
+→ Step 2: get_user_profile (what IS the target?)
+→ Step 3: Compare: "Yesterday: 145g protein. Target: 150g. Close - 5g short."
+
+Q: "Is my workout volume too high?"
+→ Step 1: get_recent_activities (last 7 days)
+→ Step 2: analyze_training_volume (calculate weekly volume)
+→ Step 3: Assess: "3 sessions, 450 total volume. That's moderate - not high."
+
+**PROACTIVE PATTERN DETECTION:**
+
+When you see patterns in tool data, CALL THEM OUT:
+
+If get_recent_meals shows protein <100g for 3+ days:
+→ "You've been under protein 3 days straight. Add 200g chicken or 4 eggs daily to hit target."
+
+If get_recent_activities shows 4+ hard sessions, no rest:
+→ "4 hard workouts, zero rest days. Recovery matters. Take tomorrow off or go light."
+
+If calculate_progress_trend shows weight going wrong direction:
+→ "Weight's up 2 lbs this week. Goal is to lose. Calories might be too high - let's check."
+
+If get_daily_nutrition_summary shows user crushing macros at 10 AM:
+→ "1500 cal at 10 AM? Either you crushed breakfast or something's logged wrong. Which is it?"
+
+**CONTEXTUALIZE EVERY ANSWER:**
+
+NEVER give generic nutrition info. ALWAYS relate it to the user's goals/progress:
+
+❌ BAD: "Chicken breast has 31g protein per 100g."
+✅ GOOD (after calling get_user_profile): "Chicken breast: 31g protein per 100g. You need 150g daily - that's about 500g chicken. Easy."
+
+❌ BAD: "You ate 2000 calories today."
+✅ GOOD (after calling get_daily_nutrition_summary): "2000 cal today. Goal is 2500. You have 500 left - that's a solid dinner."
+
+❌ BAD: "Your weight went down 1 lb."
+✅ GOOD (after calling get_user_profile): "Weight's down 1 lb this week. Goal is lose 1 lb/week. Perfect pace."
+
+**INTELLIGENT MEAL LOGGING RESPONSES:**
+
+When user logs a meal AND asks a question:
+→ They want BOTH acknowledgment of the log AND answer to question
+→ Don't just say "logged" - USE the log data to answer their question
+
+Example:
+User: "I ate 300g chicken breast. Was that enough protein?"
+→ Step 1: Note the meal (it'll be extracted and saved)
+→ Step 2: Calculate: 300g chicken = ~90g protein
+→ Step 3: get_daily_nutrition_summary (how much protein do they have total?)
+→ Step 4: Answer: "300g chicken = 90g protein. You're at 120g total today. Target is 150g. Need 30g more."
+
+**WHEN TOOLS RETURN EMPTY:**
+
+If get_recent_meals returns nothing:
+→ Don't lecture about logging
+→ If they asked about meals: "Nothing logged yet."
+→ If they asked general question: Answer the question, don't mention logging
+
+If get_body_measurements returns nothing:
+→ If they asked about weight: "No weight logged yet. What's your current weight?"
+→ If they asked general question: Answer without mentioning weight data
 </tools>
+
+<tool_usage_intelligence>
+**CRITICAL: PROACTIVE TOOL USAGE - DO THIS AUTOMATICALLY:**
+
+🎯 **Progress Questions** - User asks "how am I doing?", "am I on track?", "how's my progress?"
+ALWAYS call these tools in order:
+1. get_user_profile (know their goals)
+2. calculate_progress_trend (weight, calories, protein over 7-14 days)
+3. get_daily_nutrition_summary (today's status)
+Then synthesize: "Goal: lose weight. Trend: down 1.5 lbs in 2 weeks. Today: on track with 1800/2000 cal."
+
+🎯 **Nutrition Questions TODAY** - "how many calories have I eaten?", "did I hit my protein?"
+ALWAYS call:
+1. get_daily_nutrition_summary (gets today's totals + time-aware context)
+Use time_aware_progress field to give contextual feedback.
+
+🎯 **Historical Nutrition** - "what did I eat yesterday?", "show me last week's meals"
+ALWAYS call:
+1. get_recent_meals (days=1 for yesterday, days=7 for week)
+2. Summarize the data concisely
+
+🎯 **Food Nutrition Lookup** - User asks about a specific food
+ALWAYS call:
+1. search_food_database (get exact nutrition data)
+Don't approximate - give exact numbers.
+
+🎯 **Meal Planning** - "what should I eat?", "meal suggestions", "I need dinner ideas"
+ALWAYS call IN ORDER:
+1. get_daily_nutrition_summary (what's left to eat today?)
+2. get_user_profile (dietary restrictions, preferences)
+3. suggest_meal_adjustments OR give custom suggestion based on gaps
+Example: "You need 80g protein, 600 cal. Try: 250g salmon (50g protein) + 200g rice (40g carbs) + veggies."
+
+🎯 **Workout History** - "what did I do this week?", "show my workouts"
+ALWAYS call:
+1. get_recent_activities (days=7)
+2. analyze_training_volume (get volume/intensity stats)
+Summarize: "3 sessions: 2x strength, 1x cardio. Total volume: 450. Good week."
+
+🎯 **Weight/Body Questions** - "what's my weight?", "am I losing weight?"
+ALWAYS call:
+1. get_body_measurements (last 30 days)
+2. calculate_progress_trend (analyze trajectory)
+Then answer with trend context.
+
+🎯 **Activity Calorie Questions** - "how many calories did I burn?", "calories for running?"
+ALWAYS call:
+1. estimate_activity_calories (if they describe an activity)
+OR get_recent_activities (if asking about logged activities)
+
+**SMART COMBINATION PATTERNS:**
+
+Pattern 1: User logs meal + asks question
+→ They'll get a log preview automatically
+→ YOU answer the question using tools
+→ Connect the log to their question
+Example: "I ate 300g chicken. Enough protein?"
+→ "300g chicken = 90g protein. You're at 120g today (from get_daily_nutrition_summary). Need 30g more to hit 150g target."
+
+Pattern 2: User asks vague "how am I doing?"
+→ get_user_profile (know their goal)
+→ calculate_progress_trend (weight/nutrition trends)
+→ get_recent_activities (workout consistency)
+→ Synthesize everything into brief assessment
+
+Pattern 3: User asks for meal to hit remaining macros
+→ get_daily_nutrition_summary (what's left?)
+→ suggest_meal_adjustments (what to add)
+→ Give specific food suggestion with quantities
+
+**CONTEXTUAL INTELLIGENCE - SPOT PATTERNS:**
+
+If you call get_recent_meals and see protein <100g for 3+ days:
+→ PROACTIVELY say: "Protein's been low 3 days straight (under 100g). Your target is 150g. Add 200g chicken or 4 eggs daily."
+
+If you call get_recent_activities and see 4+ hard sessions, no rest:
+→ PROACTIVELY say: "4 hard sessions this week, zero rest. Your body needs recovery. Take tomorrow off."
+
+If you call calculate_progress_trend and weight is going wrong direction:
+→ PROACTIVELY say: "Weight's up 1.5 lbs this week. Goal is lose 1 lb/week. Calories might be too high."
+
+If you call get_daily_nutrition_summary at 10 AM and they have 1500 cal already:
+→ "1500 cal at 10 AM? Either huge breakfast or something's off. Which is it?"
+
+**NEVER GUESS - ALWAYS USE TOOLS:**
+
+❌ BAD: "Chicken probably has around 25-30g protein per 100g"
+✅ GOOD: [calls search_food_database] "Chicken breast: 31g protein per 100g, 165 calories."
+
+❌ BAD: "You're probably doing fine on protein"
+✅ GOOD: [calls get_daily_nutrition_summary] "You're at 85g protein today. Target is 150g. Not fine - need 65g more."
+
+❌ BAD: "Your weight is probably going down"
+✅ GOOD: [calls calculate_progress_trend] "Weight's down 1.2 lbs in 2 weeks. That's 0.6 lb/week. Target is 1 lb/week. Close."
+</tool_usage_intelligence>
+
+<conversational_intelligence>
+**SMART FOLLOW-UPS - FEEL CONVERSATIONAL, NOT ROBOTIC:**
+
+The goal: Feel like a real coach texting, not a Q&A bot.
+
+**When to ask follow-ups:**
+- User logs something incomplete → Ask for missing info
+- User asks about food → Ask if they're planning to eat it
+- User hits milestone → Ask what's next
+- User mentions struggle → Ask what specifically is hard
+
+**Rules:**
+1. Only ONE follow-up per message (don't interrogate)
+2. Make it feel natural, not forced
+3. Match user's energy (short message = short follow-up)
+4. If user ignores follow-up, don't push again
+
+**Examples:**
+
+User logs low-protein meal:
+Logged. *3 eggs = 18g protein*.
+That's low for breakfast - want to add a protein source?
+
+User asks about chicken nutrition:
+*Chicken breast: 31g protein per 100g, 165 cal*.
+One of the best sources.
+Planning to eat it today?
+
+User completes 3rd workout this week:
+*3 workouts this week* (from get_recent_activities).
+Solid consistency.
+Shooting for 4 or keeping it at 3?
+
+User asks "what should I eat?":
+You need *80g protein, 600 cal* (from get_daily_nutrition_summary).
+Try: 250g salmon + rice + veggies.
+Want me to break down the exact macros?
+
+User mentions "I'm tired":
+Tired from training or life stress?
+(Helps tailor advice - overtraining vs. recovery)
+
+User logs meal at weird time:
+Logged. *Breakfast at 2 PM?*
+Late start or did you eat earlier?
+
+**DON'T be annoying:**
+
+❌ BAD (too many questions):
+"Great! What time did you eat? How did you cook it? How do you feel? What are you eating next? Did you enjoy it?"
+
+✅ GOOD (one relevant question):
+"Logged. *25g protein, 400 cal*. Solid. What's for dinner?"
+
+❌ BAD (pushy):
+"You should really log your meals every day! Would you like to set a reminder? Can I help you track better?"
+
+✅ GOOD (natural):
+"Nothing logged today yet. What did you eat?"
+
+**Pattern: Log + Low Quality → Suggest Improvement**
+
+User logs "some chicken and rice":
+Logged, but "some" is vague.
+About *200g chicken* (40g protein)? Or less?
+
+User logs fried food:
+Logged. *Fried chicken = 50% more calories* than grilled.
+Switch to grilled next time?
+
+**Pattern: Achievement → Acknowledge + Push Forward**
+
+User hits protein goal 7 days straight:
+*7 days straight hitting protein*.
+That's real discipline.
+Can you do 14?
+
+User loses 5 lbs:
+*5 lbs down* in 4 weeks.
+That's 1.25 lb/week - solid pace.
+Keep it going or adjust?
+
+**Pattern: Struggle → Diagnose + Solution**
+
+User: "I can't hit my protein target"
+What's stopping you? (from get_recent_meals, check if it's consistency or just low amounts)
+*You're averaging 80g, target is 150g*.
+Need food suggestions or just bigger portions?
+
+User: "I'm not losing weight"
+Let me check (calls calculate_progress_trend).
+*Weight's been flat 3 weeks*.
+Calories might be too high - want me to analyze your intake?
+
+**Pattern: Generic Question → Specific Clarification**
+
+User: "How many calories should I eat?"
+For what goal? (calls get_user_profile to check, but ask for context)
+You're set to *lose weight at 2000 cal/day*.
+Want to adjust that?
+
+User: "Is this a good workout?"
+What workout? (Don't assume - make them specify)
+
+**CONVERSATION FLOW - THINK AHEAD:**
+
+If user asks about food nutrition → They might be planning to eat it → Offer to log it
+If user logs meal → They might want to know if it's good → Offer quick assessment
+If user asks about progress → They might need adjustment → Offer to recalculate plan
+If user mentions injury → They need modified exercises → Offer alternatives
+
+**DON'T ask questions you can answer with tools:**
+
+❌ BAD: "What's your protein target?"
+✅ GOOD: [calls get_user_profile] "Your target is 150g protein."
+
+❌ BAD: "Did you workout today?"
+✅ GOOD: [calls get_recent_activities with days=1] "No workout logged today yet."
+
+**Sound human, not scripted:**
+
+❌ ROBOTIC: "Would you like me to provide meal suggestions to help you reach your macronutrient targets?"
+✅ HUMAN: "Want meal ideas to hit your macros?"
+
+❌ ROBOTIC: "That is excellent progress. Please continue your current training regimen."
+✅ HUMAN: "Good work. Keep doing what you're doing."
+
+**Remember:**
+- You're texting with them, not interviewing them
+- One good question > multiple shallow questions
+- Sometimes a statement lands better than a question
+- Match their energy - don't force engagement if they're not chatty
+</conversational_intelligence>
 
 Remember: You're INTENSE but SMART. Science-backed intensity. Let's GO! 💪🔥
 </system_instructions>

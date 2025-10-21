@@ -33,30 +33,69 @@ class LogExtractionService:
     async def extract_log_data(
         self,
         message: str,
-        user_id: str
-    ) -> Optional[Dict[str, Any]]:
+        user_id: str,
+        image_base64: Optional[str] = None
+    ) -> Optional[List[Dict[str, Any]]]:
         """
         Analyze message and extract log data if present.
+
+        SUPPORTS MULTI-LOGGING: Can extract multiple logs from one message.
+        Example: "I ate eggs for breakfast and chicken for lunch" → returns 2 meal logs
+
+        SUPPORTS PHOTO ANALYSIS: If image provided, uses Claude Vision to identify foods.
+        Example: Photo of meal + "breakfast" → Claude identifies all foods in photo
 
         Args:
             message: User's message
             user_id: User UUID (for context)
+            image_base64: Optional base64-encoded image for food photo analysis
 
         Returns:
-            {
-                "log_type": "meal" | "activity" | "measurement",
-                "confidence": 0.0-1.0,
-                "structured_data": {...},
-                "original_text": message
-            }
+            [
+                {
+                    "log_type": "meal" | "activity" | "measurement",
+                    "confidence": 0.0-1.0,
+                    "structured_data": {...},
+                    "original_text": message,
+                    "photo_analyzed": bool  # True if image was analyzed
+                },
+                {...}  # Additional logs if multi-logging detected
+            ]
 
             Returns None if no loggable data detected.
+            Returns list with single item for single logs.
+            Returns list with multiple items for multi-logs.
         """
-        logger.info(f"[LogExtraction] 🔍 Analyzing: '{message[:50]}...'")
+        logger.info(f"[LogExtraction] 🔍 Analyzing: '{message[:50]}...' (has_image={image_base64 is not None})")
 
-        system_prompt = """You are a log data extraction assistant for a fitness coach app.
+        # Enhanced system prompt for photo analysis
+        photo_instructions = ""
+        if image_base64:
+            photo_instructions = """
 
-Your job is to detect if a message contains loggable fitness data and extract it WITH COMMON UNITS.
+**PHOTO ANALYSIS MODE:**
+
+You have been provided with an IMAGE of food. Analyze the photo carefully to identify:
+1. All visible food items (be specific: "grilled chicken breast", not just "chicken")
+2. Estimated quantities based on portion sizes visible
+3. Cooking methods (grilled, fried, boiled, raw, etc.)
+4. Serving sizes (estimate grams based on plate size and typical portions)
+
+Common portion estimation guidelines:
+- Palm-sized protein (chicken, steak) = ~150-200g
+- Fist-sized carbs (rice, pasta) = ~150-200g
+- Handful of nuts/snacks = ~30g
+- Standard plate serving of vegetables = ~100-150g
+- Large plate = portions may be 1.5x typical
+
+Be thorough - list ALL visible foods, even condiments and garnishes.
+Estimate quantities conservatively - better to underestimate than overestimate.
+
+CRITICAL: If the image shows food, you MUST extract it as a meal log with all visible foods."""
+
+        system_prompt = f"""You are a log data extraction assistant for a fitness coach app.
+
+Your job is to detect if a message contains loggable fitness data and extract it WITH COMMON UNITS.{photo_instructions}
 
 **LOGGABLE DATA TYPES:**
 
@@ -148,9 +187,18 @@ nutrition_confidence = (quantity_precision^0.5) × (food_id^0.3) × (preparation
 
 **OUTPUT FORMAT:**
 
-If loggable data found:
+**CRITICAL: MULTI-LOGGING SUPPORT**
+If user mentions MULTIPLE distinct meals/activities in one message, extract ALL of them as separate logs.
+
+Examples of multi-logging:
+- "I ate eggs for breakfast and chicken for lunch" → 2 meal logs
+- "I ran 5K and did 100 pushups" → 2 activity logs
+- "I weigh 175 lbs and ate 3 eggs" → 1 measurement + 1 meal
+- "Had breakfast (eggs) and went for a run" → 1 meal + 1 activity
+
+**SINGLE LOG** (return as single-item array):
 ```json
-{
+[{
   "log_type": "meal",
   "classification_confidence": 0.95,
   "nutrition_confidence": 0.72,
@@ -180,22 +228,76 @@ If loggable data found:
     ],
     "notes": "User's original message"
   }
-}
+}]
 ```
 
-If NO loggable data:
+**MULTI-LOG** (return multiple items in array):
 ```json
-{
-  "log_type": null,
-  "classification_confidence": 0.0,
-  "nutrition_confidence": 0.0,
-  "structured_data": null
-}
+[
+  {
+    "log_type": "meal",
+    "classification_confidence": 0.95,
+    "nutrition_confidence": 0.75,
+    "confidence_breakdown": {"quantity_precision": 0.8, "food_identification": 0.9, "preparation_detail": 0.7},
+    "structured_data": {
+      "meal_type": "breakfast",
+      "foods": [{"name": "eggs", "quantity": 3, "unit": "pieces", "estimated_grams": 150}],
+      "notes": "Breakfast part of message"
+    }
+  },
+  {
+    "log_type": "meal",
+    "classification_confidence": 0.92,
+    "nutrition_confidence": 0.68,
+    "confidence_breakdown": {"quantity_precision": 0.6, "food_identification": 0.8, "preparation_detail": 0.5},
+    "structured_data": {
+      "meal_type": "lunch",
+      "foods": [{"name": "chicken", "quantity": null, "unit": null, "estimated_grams": 200, "note": "estimated"}],
+      "notes": "Lunch part of message"
+    }
+  }
+]
 ```
 
-Return ONLY valid JSON, no explanations."""
+**NO LOGGABLE DATA:**
+Return null (not an array)
 
-        user_prompt = f"""Analyze this message and extract any loggable fitness data:
+**CRITICAL RULES:**
+- ALWAYS return an ARRAY when logs are found (even for single log)
+- Return null (not array) when NO logs found
+- Each log in array must be COMPLETE with all fields
+- Confidence scores are PER LOG (not shared)
+- For multi-logs, extract the relevant part of the message in "notes" field for each
+
+Return ONLY valid JSON (array or null), no explanations."""
+
+        # Build user prompt with optional image
+        if image_base64:
+            user_prompt_text = f"""Analyze the provided IMAGE and message to extract loggable fitness data.
+
+Message: "{message}"
+
+Current time: {datetime.now().isoformat()}
+
+Identify ALL foods visible in the image with estimated quantities.
+Return JSON with log_type, confidence, and structured_data."""
+
+            user_content = [
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "image/jpeg",
+                        "data": image_base64
+                    }
+                },
+                {
+                    "type": "text",
+                    "text": user_prompt_text
+                }
+            ]
+        else:
+            user_prompt_text = f"""Analyze this message and extract any loggable fitness data:
 
 "{message}"
 
@@ -203,14 +305,16 @@ Current time: {datetime.now().isoformat()}
 
 Return JSON with log_type, confidence, and structured_data."""
 
+            user_content = user_prompt_text
+
         try:
             response = self.anthropic.messages.create(
-                model="claude-3-5-haiku-20241022",
-                max_tokens=500,
+                model="claude-3-5-haiku-20241022" if not image_base64 else "claude-3-5-sonnet-20241022",  # Use Sonnet for vision
+                max_tokens=1000 if image_base64 else 500,  # More tokens for photo analysis
                 temperature=0.1,
                 system=system_prompt,
                 messages=[
-                    {"role": "user", "content": user_prompt}
+                    {"role": "user", "content": user_content}
                 ]
             )
 
@@ -225,33 +329,61 @@ Return JSON with log_type, confidence, and structured_data."""
 
             extraction = json.loads(response_text)
 
-            # Validate response
-            if not extraction.get("log_type"):
-                logger.info("[LogExtraction] ❌ No loggable data detected")
+            # Handle multi-logging response format
+            if extraction is None or extraction == "null":
+                logger.info("[LogExtraction] ❌ No loggable data detected (null response)")
                 return None
 
-            # Use classification_confidence for log detection threshold
-            classification_conf = extraction.get("classification_confidence", 0)
-            nutrition_conf = extraction.get("nutrition_confidence", 0)
+            # Ensure it's an array (support both old single-dict and new array format)
+            if isinstance(extraction, dict):
+                # Old format: single log as dict → wrap in array
+                logger.debug("[LogExtraction] Converting single-dict response to array format")
+                extraction = [extraction]
+            elif not isinstance(extraction, list):
+                logger.error(f"[LogExtraction] ❌ Unexpected response type: {type(extraction)}")
+                return None
 
-            if classification_conf < 0.5:
+            # Validate and filter each log
+            valid_logs = []
+            for idx, log in enumerate(extraction):
+                log_type = log.get("log_type")
+                if not log_type:
+                    logger.debug(f"[LogExtraction] Skipping log {idx}: no log_type")
+                    continue
+
+                # Use classification_confidence for log detection threshold
+                classification_conf = log.get("classification_confidence", 0)
+                nutrition_conf = log.get("nutrition_confidence", 0)
+
+                if classification_conf < 0.5:
+                    logger.info(
+                        f"[LogExtraction] ⚠️ Log {idx} ({log_type}): Classification confidence too low: {classification_conf:.2f}"
+                    )
+                    continue
+
+                # Add original text
+                log["original_text"] = message
+
+                # Mark if photo was analyzed
+                log["photo_analyzed"] = image_base64 is not None
+
+                # For backward compatibility, keep generic "confidence" field
+                log["confidence"] = classification_conf
+
                 logger.info(
-                    f"[LogExtraction] ⚠️ Classification confidence too low: {classification_conf}"
+                    f"[LogExtraction] ✅ Log {idx+1}: {log_type} "
+                    f"(classification: {classification_conf:.2f}, nutrition: {nutrition_conf:.2f})"
                 )
+
+                valid_logs.append(log)
+
+            # Return valid logs or None if all filtered out
+            if not valid_logs:
+                logger.info("[LogExtraction] ❌ No valid logs after filtering")
                 return None
 
-            logger.info(
-                f"[LogExtraction] ✅ Extracted {extraction['log_type']} "
-                f"(classification: {classification_conf:.2f}, nutrition: {nutrition_conf:.2f})"
-            )
-
-            # Add original text
-            extraction["original_text"] = message
-
-            # For backward compatibility, keep generic "confidence" field
-            extraction["confidence"] = classification_conf
-
-            return extraction
+            logger.info(f"[LogExtraction] ✅ Returning {len(valid_logs)} log(s)")
+            return valid_logs
 
         except json.JSONDecodeError as e:
             logger.error(f"[LogExtraction] ❌ JSON decode failed: {e}")
