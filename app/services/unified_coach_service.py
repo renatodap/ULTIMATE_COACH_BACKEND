@@ -2,7 +2,7 @@
 Unified Coach Service - THE BRAIN 🧠
 
 This is the main orchestrator that coordinates everything:
-- Message classification (CHAT vs LOG)
+- Message classification (CHAT vs LOG) - Claude 3.5 Haiku
 - Smart routing (Canned → Groq → Claude)
 - Agentic tool calling (on-demand data fetching)
 - Perfect memory (embeddings + conversation history)
@@ -25,7 +25,7 @@ class UnifiedCoachService:
     The Brain - Coordinates all coach interactions.
 
     Architecture:
-    1. User Message → Classifier (Groq)
+    1. User Message → Classifier (Claude 3.5 Haiku)
     2. Route: CHAT or LOG?
     3. If CHAT:
        a. Detect language
@@ -63,7 +63,19 @@ class UnifiedCoachService:
         from app.services.response_formatter_service import get_response_formatter
         from app.services.log_extraction_service import get_log_extraction_service
 
-        self.classifier = get_message_classifier(groq_client)
+        # Create sync Anthropic client for classifier and complexity analyzer
+        try:
+            from anthropic import Anthropic
+            import os
+            api_key = os.getenv("ANTHROPIC_API_KEY")
+            if not api_key:
+                raise ValueError("ANTHROPIC_API_KEY not set")
+            sync_anthropic_client = Anthropic(api_key=api_key)
+        except Exception as e:
+            logger.error("anthropic_client_init_failed", error=str(e), exc_info=True)
+            raise
+
+        self.classifier = get_message_classifier(sync_anthropic_client)
         self.i18n = get_i18n_service(supabase_client)
         self.cache = get_cache_service()
         self.activity_validator = get_activity_validation_service()
@@ -72,18 +84,8 @@ class UnifiedCoachService:
         self.conversation_memory = get_conversation_memory_service(supabase_client)
         self.tool_service = get_tool_service(supabase_client)
 
-        # Create sync Anthropic client for complexity analyzer (uses sync API calls)
-        try:
-            from anthropic import Anthropic
-            import os
-            api_key = os.getenv("ANTHROPIC_API_KEY")
-            if not api_key:
-                raise ValueError("ANTHROPIC_API_KEY not set")
-            sync_anthropic_client = Anthropic(api_key=api_key)
-            self.complexity_analyzer = get_complexity_analyzer(sync_anthropic_client)
-        except Exception as e:
-            logger.error("complexity_analyzer_init_failed", error=str(e), exc_info=True)
-            raise
+        # Complexity analyzer (uses same sync client)
+        self.complexity_analyzer = get_complexity_analyzer(sync_anthropic_client)
 
         self.security = get_security_service(self.cache)
         self.formatter = get_response_formatter(groq_client)

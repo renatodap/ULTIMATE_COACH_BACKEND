@@ -1,10 +1,10 @@
 """
 Message Classifier Service
 
-Classifies user messages as CHAT or LOG using cheap Groq model.
+Classifies user messages as CHAT or LOG using Claude 3.5 Haiku.
 Critical for routing messages to correct handler in unified Coach interface.
 
-Uses Groq Llama 3.3 70B: $0.05/M tokens (~$0.0001 per classification)
+Uses Claude 3.5 Haiku: Fast, cheap, high-quality classification
 """
 
 import structlog
@@ -22,14 +22,14 @@ class MessageClassifierService:
     LOG: Meals, workouts, measurements that should be recorded
     """
 
-    def __init__(self, groq_client):
+    def __init__(self, anthropic_client):
         """
-        Initialize classifier with Groq client.
+        Initialize classifier with Anthropic client.
 
         Args:
-            groq_client: Groq API client instance
+            anthropic_client: Anthropic API client instance
         """
-        self.groq = groq_client
+        self.anthropic = anthropic_client
 
     async def classify_message(
         self,
@@ -40,7 +40,7 @@ class MessageClassifierService:
         """
         Classify if message is CHAT or LOG.
 
-        Uses Groq Llama 3.3 70B ($0.05/M tokens) for speed & cost.
+        Uses Claude 3.5 Haiku for fast, accurate classification.
 
         Args:
             message: User's message text
@@ -145,19 +145,19 @@ IMPORTANT: If user includes an image with minimal text or food-related text, it'
 Return JSON classification."""
 
         try:
-            # Call Groq
-            response = self.groq.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
+            # Call Claude 3.5 Haiku
+            response = self.anthropic.messages.create(
+                model="claude-3-5-haiku-20241022",
+                max_tokens=150,
                 temperature=0.1,  # Low temperature for consistent classification
-                max_tokens=150
+                system=system_prompt,
+                messages=[
+                    {"role": "user", "content": user_prompt}
+                ]
             )
 
             # Parse JSON response
-            response_text = response.choices[0].message.content.strip()
+            response_text = response.content[0].text.strip()
             classification = json.loads(response_text)
 
             logger.info(
@@ -199,14 +199,14 @@ Return JSON classification."""
 # Singleton
 _classifier_service = None
 
-def get_message_classifier(groq_client=None):
+def get_message_classifier(anthropic_client=None):
     """Get the global MessageClassifierService instance."""
     global _classifier_service
     if _classifier_service is None:
-        if groq_client is None:
-            # Import Groq client
-            from groq import Groq
+        if anthropic_client is None:
+            # Import Anthropic client
+            from anthropic import Anthropic
             import os
-            groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
-        _classifier_service = MessageClassifierService(groq_client)
+            anthropic_client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+        _classifier_service = MessageClassifierService(anthropic_client)
     return _classifier_service
