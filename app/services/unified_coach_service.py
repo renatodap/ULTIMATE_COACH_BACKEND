@@ -664,7 +664,26 @@ class UnifiedCoachService:
             }
 
         except Exception as e:
+            error_str = str(e)
             logger.error(f"[UnifiedCoach.claude] ❌ ERROR: {e}", exc_info=True)
+
+            # Handle rate limit errors with user-friendly message
+            if "rate_limit_error" in error_str or "429" in error_str:
+                return {
+                    "success": True,
+                    "conversation_id": conversation_id,
+                    "assistant_message_id": None,
+                    "is_log_preview": False,
+                    "message": self.i18n.t('error.rate_limit', user_language) if hasattr(self, 'i18n') else
+                        "I'm receiving too many requests right now. Please wait a moment and try again.",
+                    "tokens_used": 0,
+                    "cost_usd": 0,
+                    "tools_used": [],
+                    "model": "claude-3-5-sonnet-20241022",
+                    "complexity": "simple",
+                    "rate_limited": True
+                }
+
             raise
 
     async def _handle_log_and_question_mode(
