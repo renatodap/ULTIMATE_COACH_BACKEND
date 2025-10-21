@@ -11,7 +11,6 @@ import structlog
 
 from app.api.dependencies import get_current_user
 from app.services.program_storage_service import ProgramStorageService
-from app.models.user import User
 
 logger = structlog.get_logger()
 router = APIRouter()
@@ -42,7 +41,7 @@ class ProgramResponse(BaseModel):
 @router.post("/programs/generate", response_model=ProgramResponse)
 async def generate_program(
     request: GenerateProgramRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: dict = Depends(get_current_user),
     storage_service: ProgramStorageService = Depends(),
 ):
     """
@@ -213,7 +212,7 @@ async def generate_program(
 
 @router.get("/programs/current")
 async def get_current_program(
-    current_user: User = Depends(get_current_user),
+    current_user: dict = Depends(get_current_user),
     storage_service: ProgramStorageService = Depends(),
 ):
     """
@@ -288,7 +287,7 @@ async def get_current_program(
 
 @router.get("/programs/today")
 async def get_todays_plan(
-    current_user: User = Depends(get_current_user),
+    current_user: dict = Depends(get_current_user),
     storage_service: ProgramStorageService = Depends(),
 ):
     """
@@ -339,7 +338,7 @@ async def get_todays_plan(
 
 @router.get("/programs/current-week")
 async def get_current_program_week(
-    current_user: User = Depends(get_current_user),
+    current_user: dict = Depends(get_current_user),
     storage_service: ProgramStorageService = Depends(),
 ):
     """
