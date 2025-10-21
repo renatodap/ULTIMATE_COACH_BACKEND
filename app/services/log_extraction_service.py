@@ -93,9 +93,9 @@ Estimate quantities conservatively - better to underestimate than overestimate.
 
 CRITICAL: If the image shows food, you MUST extract it as a meal log with all visible foods."""
 
-        system_prompt = f"""You are a log data extraction assistant for a fitness coach app.
+        system_prompt = """You are a log data extraction assistant for a fitness coach app.
 
-Your job is to detect if a message contains loggable fitness data and extract it WITH COMMON UNITS.{photo_instructions}
+Your job is to detect if a message contains loggable fitness data and extract it WITH COMMON UNITS.""" + photo_instructions + """
 
 **LOGGABLE DATA TYPES:**
 
