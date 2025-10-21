@@ -3,7 +3,7 @@ Unified Coach Service - THE BRAIN 🧠
 
 This is the main orchestrator that coordinates everything:
 - Message classification (CHAT vs LOG) - Claude 3.5 Haiku
-- Smart routing (Canned → Claude 3.5 Haiku)
+- Direct routing to Claude 3.5 Haiku for all chat
 - Agentic tool calling (on-demand data fetching)
 - Perfect memory (embeddings + conversation history)
 - Multilingual support (auto-detects language)
@@ -30,11 +30,10 @@ class UnifiedCoachService:
     2. Route: CHAT or LOG?
     3. If CHAT:
        a. Detect language
-       b. Check for canned responses (trivial queries)
-       c. Route to Claude 3.5 Haiku (all queries)
-       d. Call tools on-demand (agentic)
-       e. Generate response
-       f. Vectorize in background
+       b. Route to Claude 3.5 Haiku (all queries)
+       c. Call tools on-demand (agentic)
+       d. Generate response
+       e. Vectorize in background
     4. If LOG:
        a. Extract structured data
        b. Show preview card
@@ -55,7 +54,6 @@ class UnifiedCoachService:
         from app.services.i18n_service import get_i18n_service
         from app.services.cache_service import get_cache_service
         from app.services.activity_validation_service import get_activity_validation_service
-        from app.services.canned_response_service import get_canned_response
         from app.services.context_detector_service import get_context_detector
         from app.services.conversation_memory_service import get_conversation_memory_service
         from app.services.tool_service import get_tool_service, COACH_TOOLS
@@ -79,7 +77,6 @@ class UnifiedCoachService:
         self.i18n = get_i18n_service(supabase_client)
         self.cache = get_cache_service()
         self.activity_validator = get_activity_validation_service()
-        self.canned_response = get_canned_response(self.i18n)
         self.context_detector = get_context_detector()
         self.conversation_memory = get_conversation_memory_service(supabase_client)
         self.tool_service = get_tool_service(supabase_client)
@@ -282,63 +279,22 @@ class UnifiedCoachService:
         user_language: str
     ) -> Dict[str, Any]:
         """
-        Handle CHAT mode with smart routing.
+        Handle CHAT mode - simplified routing to Claude 3.5 Haiku only.
 
         Flow:
-        1. Check for canned response (trivial queries)
-        2. If not trivial, analyze complexity
-        3. Route to appropriate model:
-           - Trivial (30%): Canned response - FREE, 0ms
-           - Simple (50%): Groq Llama 3.3 70B - $0.01, 500ms
-           - Complex (20%): Claude 3.5 Sonnet - $0.15, 2000ms
-        4. Save AI response
-        5. Vectorize in background
+        1. Route all queries directly to Claude 3.5 Haiku
+        2. Claude handles tool calling, context, and response generation
+        3. Save AI response
+        4. Vectorize in background
+
+        Cost: ~$0.02/interaction
+        Speed: 500-1500ms
         """
         logger.info(f"[UnifiedCoach.chat] 💬 START - message_id: {user_message_id[:8]}...")
 
         try:
-            # ROUTE 1: Try canned response first (FREE, instant)
-            canned = self.canned_response.get_response(message, user_language)
-
-            if canned:
-                logger.info("[UnifiedCoach.chat] 🎯 Using canned response")
-
-                ai_message_id = await self._save_ai_message(
-                    user_id=user_id,
-                    conversation_id=conversation_id,
-                    content=canned,
-                    ai_provider='canned',
-                    ai_model='pattern_matching',
-                    tokens_used=0,
-                    cost_usd=0.0,
-                    context_used={'complexity': 'trivial'}
-                )
-
-                if background_tasks:
-                    background_tasks.add_task(
-                        self._vectorize_message,
-                        user_id, user_message_id, message, "user"
-                    )
-                    background_tasks.add_task(
-                        self._vectorize_message,
-                        user_id, ai_message_id, canned, "assistant"
-                    )
-
-                return {
-                    "success": True,
-                    "conversation_id": conversation_id,
-                    "message_id": ai_message_id,
-                    "is_log_preview": False,
-                    "message": canned,
-                    "log_preview": None,
-                    "tokens_used": 0,
-                    "cost_usd": 0.0,
-                    "model": "canned_response",
-                    "complexity": "trivial"
-                }
-
-            # ROUTE 2: Direct to Claude 3.5 Haiku (simplified routing)
-            # All queries go to Claude for consistent, high-quality responses
+            # Direct to Claude 3.5 Haiku - all queries
+            # Simple, fast, consistent, high-quality
             logger.info("[UnifiedCoach.chat] 🧠 Using Claude 3.5 Haiku")
             return await self._handle_claude_chat(
                 user_id=user_id,
