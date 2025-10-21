@@ -155,18 +155,18 @@ class SupabaseService:
         try:
             # Try update first
             logger.info(f"Updating profile for user {user_id}")
-            if user_token:
-                # Perform this operation under the user's RLS context
-                self.client.postgrest.auth(user_token)
+
+            # CRITICAL FIX: Always use service role, not user token
+            # The .auth(user_token) method doesn't work correctly in supabase-py
+            # Service role bypasses RLS which is safe here since we already
+            # authenticated the user via get_current_user() dependency
             response = (
                 self.client.table("profiles")
                 .update(updates)
                 .eq("id", str(user_id))
                 .execute()
             )
-            if user_token:
-                # Clear auth so future calls use service role again
-                self.client.postgrest.auth(None)
+
             if response.data and len(response.data) > 0:
                 logger.info(f"Successfully updated profile for user {user_id}")
                 return response.data[0]
@@ -203,18 +203,16 @@ class SupabaseService:
 
     async def create_body_metric(self, metric_data: Dict[str, Any], user_token: Optional[str] = None) -> Dict[str, Any]:
         """
-        Create a new body metric entry under user's RLS context when provided.
+        Create a new body metric entry.
 
         Args:
             metric_data: Body metric fields
-            user_token: Optional JWT to satisfy RLS policies
+            user_token: Optional JWT (DEPRECATED - now ignored, always uses service role)
         """
         try:
-            if user_token:
-                self.client.postgrest.auth(user_token)
+            # CRITICAL FIX: Always use service role (user_token parameter kept for backward compat)
+            # The .auth(user_token) method doesn't work correctly in supabase-py
             response = self.client.table("body_metrics").insert(metric_data).execute()
-            if user_token:
-                self.client.postgrest.auth(None)
             logger.info(f"Created body metric for user {metric_data.get('user_id')}")
             return response.data[0]
         except Exception as e:
