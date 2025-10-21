@@ -8,7 +8,7 @@ meal_items track both user input and calculated values.
 
 from datetime import datetime
 from decimal import Decimal
-from typing import List, Optional, Any
+from typing import List, Optional, Any, Dict
 from uuid import UUID
 
 from pydantic import BaseModel, Field, ConfigDict, field_serializer
@@ -175,6 +175,10 @@ class MealItem(BaseModel):
 
     display_order: int = 0
     created_at: datetime
+
+    # Joined food data (from SELECT "foods(name, brand_name)")
+    # Only populated when querying with JOIN, not when creating
+    foods: Optional[Dict[str, Any]] = Field(default=None, description="Joined food data with name and brand_name")
 
     model_config = ConfigDict(from_attributes=True)
 
