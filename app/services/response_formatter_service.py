@@ -1,5 +1,5 @@
 """
-Response Formatter Service - Post-Processing with Llama
+Response Formatter Service - Post-Processing with Claude Haiku
 
 Takes Claude's responses and makes them:
 1. More concise (dynamic limits based on content)
@@ -11,8 +11,8 @@ DYNAMIC LIMITS:
 - Complex answers: Keep under 150 words
 - Plans/analysis: Keep under 200 words
 
-Uses Groq Llama 3.3 70B for fast, cheap reformatting.
-Cost: ~$0.0001 per reformat (negligible)
+Uses Claude 3.5 Haiku for fast, high-quality reformatting.
+Cost: ~$0.0002 per reformat (negligible)
 """
 
 import structlog
@@ -26,12 +26,12 @@ class ResponseFormatterService:
     """
     Post-process AI responses to enforce brevity and natural language.
 
-    Uses Groq Llama to intelligently shorten responses while preserving
+    Uses Claude 3.5 Haiku to intelligently shorten responses while preserving
     key information and making them sound more human.
     """
 
-    def __init__(self, groq_client):
-        self.groq = groq_client
+    def __init__(self, anthropic_client):
+        self.anthropic = anthropic_client
 
     async def format_response(
         self,
@@ -84,25 +84,27 @@ class ResponseFormatterService:
             # Build reformatting prompt with dynamic target
             system_prompt = self._build_formatter_prompt(language, target_words)
 
-            # Call Groq Llama for reformatting
-            response = self.groq.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": f"""Original message from user:
+            user_content = f"""Original message from user:
 {user_message}
 
 Coach's response to reformat:
 {original_response}
 
 Reformat this to be concise (target: ~{target_words} words) and sound like a human texting.
-Keep key information but remove fluff."""}
-                ],
+Keep key information but remove fluff."""
+
+            # Call Claude 3.5 Haiku for reformatting
+            response = self.anthropic.messages.create(
+                model="claude-3-5-haiku-20241022",
+                max_tokens=300,
                 temperature=0.3,  # Low for consistent formatting
-                max_tokens=300  # Increased for longer answers
+                system=system_prompt,
+                messages=[
+                    {"role": "user", "content": user_content}
+                ]
             )
 
-            formatted = response.choices[0].message.content.strip()
+            formatted = response.content[0].text.strip()
 
             # Remove markdown formatting artifacts if present
             formatted = re.sub(r'^```.*\n', '', formatted)
@@ -226,13 +228,13 @@ Return ONLY the reformatted message, no explanations."""
 # Singleton
 _formatter_service: Optional[ResponseFormatterService] = None
 
-def get_response_formatter(groq_client=None) -> ResponseFormatterService:
+def get_response_formatter(anthropic_client=None) -> ResponseFormatterService:
     """Get singleton ResponseFormatterService instance."""
     global _formatter_service
     if _formatter_service is None:
-        if groq_client is None:
-            from groq import Groq
+        if anthropic_client is None:
+            from anthropic import Anthropic
             import os
-            groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
-        _formatter_service = ResponseFormatterService(groq_client)
+            anthropic_client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+        _formatter_service = ResponseFormatterService(anthropic_client)
     return _formatter_service

@@ -43,7 +43,6 @@ class UnifiedCoachService:
     def __init__(
         self,
         supabase_client,
-        groq_client,
         anthropic_client
     ):
         # Core services
@@ -82,11 +81,10 @@ class UnifiedCoachService:
         self.tool_service = get_tool_service(supabase_client)
 
         self.security = get_security_service(self.cache)
-        self.formatter = get_response_formatter(groq_client)
-        self.log_extractor = get_log_extraction_service(groq_client)
+        self.formatter = get_response_formatter(sync_anthropic_client)
+        self.log_extractor = get_log_extraction_service(sync_anthropic_client)
 
-        # AI clients
-        self.groq = groq_client  # Still used by formatter and log_extractor
+        # AI client
         self.anthropic = anthropic_client  # AsyncAnthropic client for Claude chat
 
         logger.info("unified_coach_initialized")
@@ -1656,7 +1654,6 @@ _unified_coach: Optional[UnifiedCoachService] = None
 
 def get_unified_coach_service(
     supabase_client=None,
-    groq_client=None,
     anthropic_client=None
 ) -> UnifiedCoachService:
     """Get singleton UnifiedCoachService instance."""
@@ -1666,26 +1663,6 @@ def get_unified_coach_service(
             from app.services.supabase_service import get_service_client
             supabase_client = get_service_client()
 
-        if groq_client is None:
-            import os
-            api_key = os.getenv("GROQ_API_KEY")
-            if not api_key:
-                raise ValueError(
-                    "GROQ_API_KEY environment variable is not set. "
-                    "Please add it to your .env file to enable AI Coach features."
-                )
-            
-            try:
-                from groq import Groq
-                groq_client = Groq(api_key=api_key)
-            except ImportError as e:
-                raise ImportError(
-                    f"Groq SDK is not installed: {e}. "
-                    "Run: pip install groq"
-                )
-            except Exception as e:
-                raise RuntimeError(f"Failed to initialize Groq client: {e}")
-
         if anthropic_client is None:
             import os
             api_key = os.getenv("ANTHROPIC_API_KEY")
@@ -1694,7 +1671,7 @@ def get_unified_coach_service(
                     "ANTHROPIC_API_KEY environment variable is not set. "
                     "Please add it to your .env file to enable AI Coach features."
                 )
-            
+
             try:
                 from anthropic import AsyncAnthropic
                 anthropic_client = AsyncAnthropic(api_key=api_key)
@@ -1708,7 +1685,6 @@ def get_unified_coach_service(
 
         _unified_coach = UnifiedCoachService(
             supabase_client,
-            groq_client,
             anthropic_client
         )
     return _unified_coach

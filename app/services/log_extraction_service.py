@@ -1,7 +1,7 @@
 """
 Log Extraction Service - Parse Meals & Activities from Natural Language
 
-Uses Groq Llama 3.3 70B to detect and extract structured log data:
+Uses Claude 3.5 Haiku to detect and extract structured log data:
 - Meals: "I ate 300g chicken breast and rice"
 - Activities: "I ran 5km today"
 - Measurements: "I weigh 80kg now"
@@ -19,7 +19,7 @@ logger = structlog.get_logger()
 
 class LogExtractionService:
     """
-    Extracts structured log data from natural language using Groq.
+    Extracts structured log data from natural language using Claude 3.5 Haiku.
 
     Returns:
     - log_type: 'meal', 'activity', 'measurement', or None
@@ -27,8 +27,8 @@ class LogExtractionService:
     - structured_data: Parsed data ready for database insertion
     """
 
-    def __init__(self, groq_client):
-        self.groq = groq_client
+    def __init__(self, anthropic_client):
+        self.anthropic = anthropic_client
 
     async def extract_log_data(
         self,
@@ -204,17 +204,17 @@ Current time: {datetime.now().isoformat()}
 Return JSON with log_type, confidence, and structured_data."""
 
         try:
-            response = self.groq.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
+            response = self.anthropic.messages.create(
+                model="claude-3-5-haiku-20241022",
+                max_tokens=500,
                 temperature=0.1,
-                max_tokens=500
+                system=system_prompt,
+                messages=[
+                    {"role": "user", "content": user_prompt}
+                ]
             )
 
-            response_text = response.choices[0].message.content.strip()
+            response_text = response.content[0].text.strip()
 
             # Remove markdown code blocks if present
             if response_text.startswith("```"):
@@ -314,13 +314,13 @@ Return JSON with log_type, confidence, and structured_data."""
 # Singleton
 _log_extraction_service: Optional[LogExtractionService] = None
 
-def get_log_extraction_service(groq_client=None) -> LogExtractionService:
+def get_log_extraction_service(anthropic_client=None) -> LogExtractionService:
     """Get singleton LogExtractionService instance."""
     global _log_extraction_service
     if _log_extraction_service is None:
-        if groq_client is None:
-            from groq import Groq
+        if anthropic_client is None:
+            from anthropic import Anthropic
             import os
-            groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
-        _log_extraction_service = LogExtractionService(groq_client)
+            anthropic_client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+        _log_extraction_service = LogExtractionService(anthropic_client)
     return _log_extraction_service
