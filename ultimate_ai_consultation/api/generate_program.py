@@ -492,16 +492,19 @@ def _transform_nutrition_plan(complete_plan: CompletePlan) -> NutritionPlan:
                 notes=meal.prep_notes,
             ))
         
+        # Calculate plan_date from program start date + day number
+        from datetime import datetime, timedelta
+        program_start = complete_plan.program_start_date if hasattr(complete_plan, 'program_start_date') else datetime.now().date()
+        plan_date = program_start + timedelta(days=meal_plan.day_number - 1)
+
         daily_plans.append(DailyMealPlan(
-            day_number=meal_plan.day_number,
+            plan_date=plan_date,
             training_day=meal_plan.training_day,
             meals=meals,
-            daily_totals={
-                "calories": meal_plan.daily_totals.get("calories", 0),
-                "protein": meal_plan.daily_totals.get("protein", 0),
-                "carbs": meal_plan.daily_totals.get("carbs", 0),
-                "fat": meal_plan.daily_totals.get("fat", 0),
-            },
+            daily_calories=meal_plan.daily_totals.get("calories", 0),
+            daily_protein_g=meal_plan.daily_totals.get("protein", 0),
+            daily_carbs_g=meal_plan.daily_totals.get("carbs", 0),
+            daily_fat_g=meal_plan.daily_totals.get("fat", 0),
         ))
     
     # Build nutrition plan
