@@ -142,7 +142,7 @@ class TDEECalculator:
         rmr_std = self._calculate_std(rmr_estimates, rmr_mean)
 
         # Apply activity factor to get TDEE
-        tdee_mean = round(rmr_mean * activity_factor.value)
+        tdee_mean = round(rmr_mean * activity_level.value)
 
         # Calculate confidence interval
         # Base CI width from config, adjusted by:
@@ -183,7 +183,7 @@ class TDEECalculator:
             tdee_ci_upper=tdee_ci_upper,
             confidence=confidence,
             source_equations=equations_used,
-            activity_factor=activity_factor.value,
+            activity_factor=activity_level.value,
             notes=notes,
         )
 
