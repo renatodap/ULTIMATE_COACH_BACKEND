@@ -136,13 +136,14 @@ async def generate_program(
             session_id=str(uuid.uuid4()),  # Generate session ID for this program generation
 
             # Demographics (wrapped in UserDemographics object)
+            # Use 'or' to handle None values from incomplete profiles
             demographics=UserDemographics(
                 user_id=current_user['id'],
-                age=profile.get("age", 30),
-                sex_at_birth=profile.get("biological_sex", "male"),
-                weight_kg=profile.get("current_weight_kg", 75.0),
-                height_cm=profile.get("height_cm", 175.0),
-                body_fat_percentage=profile.get("body_fat_percentage"),
+                age=profile.get("age") or 30,
+                sex_at_birth=profile.get("biological_sex") or "male",
+                weight_kg=profile.get("current_weight_kg") or 75.0,
+                height_cm=profile.get("height_cm") or 175.0,
+                body_fat_percentage=profile.get("body_fat_percentage"),  # Optional field
             ),
 
             # All other fields are optional Lists with default_factory
