@@ -507,16 +507,51 @@ def _transform_nutrition_plan(complete_plan: CompletePlan) -> NutritionPlan:
             daily_fat_g=meal_plan.daily_totals.get("fat", 0),
         ))
     
+    # Calculate macro percentages from grams
+    # Protein: 4 cal/g, Carbs: 4 cal/g, Fat: 9 cal/g
+    total_calories = complete_plan.daily_calorie_target
+    protein_calories = complete_plan.macro_targets.protein_g * 4
+    carbs_calories = complete_plan.macro_targets.carbs_g * 4
+    fat_calories = complete_plan.macro_targets.fat_g * 9
+
+    protein_percentage = round((protein_calories / total_calories) * 100, 1) if total_calories > 0 else 30.0
+    carbs_percentage = round((carbs_calories / total_calories) * 100, 1) if total_calories > 0 else 40.0
+    fat_percentage = round((fat_calories / total_calories) * 100, 1) if total_calories > 0 else 30.0
+
+    # Calculate calorie range (±10%)
+    calorie_range_lower = round(total_calories * 0.9)
+    calorie_range_upper = round(total_calories * 1.1)
+
     # Build nutrition plan
     nutrition_plan = NutritionPlan(
-        daily_meal_plans=daily_plans,
-        dietary_preference="none",  # TODO: Extract from UserProfile
+        # Required macro targets
+        daily_calorie_target=complete_plan.daily_calorie_target,
+        daily_protein_g=complete_plan.macro_targets.protein_g,
+        daily_carbs_g=complete_plan.macro_targets.carbs_g,
+        daily_fat_g=complete_plan.macro_targets.fat_g,
+
+        # Calorie ranges
+        calorie_range_lower=calorie_range_lower,
+        calorie_range_upper=calorie_range_upper,
+
+        # Meal plans (renamed from daily_meal_plans)
+        meal_plans=daily_plans,
+
+        # Dietary preferences
+        dietary_preference="omnivore",  # TODO: Extract from UserProfile
+        excluded_foods=[],  # TODO: Extract from UserProfile
+
+        # Macro percentages
+        protein_percentage=protein_percentage,
+        carbs_percentage=carbs_percentage,
+        fat_percentage=fat_percentage,
+
+        # Optional fields
         meal_timing_strategy="flexible",
-        hydration_recommendation_liters=3.0,  # TODO: Calculate based on weight/activity
         supplement_recommendations=[],  # TODO: Add supplement logic
         notes="Follow meal plan as closely as possible. Adjust portions as needed.",
     )
-    
+
     return nutrition_plan
 
 
