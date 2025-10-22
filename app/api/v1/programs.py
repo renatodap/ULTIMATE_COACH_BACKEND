@@ -748,6 +748,14 @@ async def mark_session_complete(
                 detail="Failed to mark session complete",
             )
 
+        # Update calendar event status
+        try:
+            client.table("calendar_events").update({"status": "completed"}).eq("ref_id", session_id).eq("ref_table", "session_instances").execute()
+            logger.info("calendar_event_updated", session_id=session_id, status="completed")
+        except Exception as e:
+            logger.warning("calendar_event_update_failed", error=str(e), session_id=session_id)
+            # Don't fail the request if calendar update fails
+
         logger.info(
             "session_marked_complete",
             user_id=current_user['id'],
@@ -835,6 +843,14 @@ async def mark_meal_complete(
                 status_code=500,
                 detail="Failed to mark meal complete",
             )
+
+        # Update calendar event status
+        try:
+            client.table("calendar_events").update({"status": "completed"}).eq("ref_id", meal_id).eq("ref_table", "meal_instances").execute()
+            logger.info("calendar_event_updated", meal_id=meal_id, status="completed")
+        except Exception as e:
+            logger.warning("calendar_event_update_failed", error=str(e), meal_id=meal_id)
+            # Don't fail the request if calendar update fails
 
         logger.info(
             "meal_marked_complete",

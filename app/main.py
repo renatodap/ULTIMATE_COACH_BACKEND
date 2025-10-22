@@ -375,7 +375,7 @@ async def root():
 
 
 # Import and include routers
-from app.api.v1 import health, auth, users, onboarding, training_modalities, foods, meals, activities, quick_meals, templates, body_metrics, dashboard, exercise_sets, coach, wearables, planning, programs  # consultation disabled for MVP
+from app.api.v1 import health, auth, users, onboarding, training_modalities, foods, meals, activities, quick_meals, templates, body_metrics, dashboard, exercise_sets, coach, wearables, planning, programs, calendar  # consultation disabled for MVP
 from app.api.v1.planlogs import router as planlogs_router
 
 app.include_router(health.router, prefix="/api/v1", tags=["Health"])
@@ -414,6 +414,7 @@ app.include_router(exercise_sets.router, prefix="/api/v1", tags=["Exercise Sets"
 app.include_router(coach.router, prefix="/api/v1", tags=["AI Coach"])
 app.include_router(wearables.router, prefix="/api/v1", tags=["Wearables"])
 app.include_router(programs.router, prefix="/api/v1", tags=["Programs"])  # NEW: Proper auth-based endpoints
+app.include_router(calendar.router, prefix="/api/v1", tags=["Calendar"])  # Calendar views and progress tracking
 app.include_router(planning.router, prefix="/api/v1", tags=["Planning & Adaptive"])  # OLD: Legacy endpoints with user_id params
 app.include_router(planlogs_router, prefix="/api/v1/planlogs", tags=["Plan Logs"])
 
