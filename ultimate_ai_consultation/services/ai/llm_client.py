@@ -14,7 +14,7 @@ import json
 import threading
 from typing import Any, Dict, Optional
 
-from config import get_settings
+from ultimate_ai_consultation.config import get_settings
 import httpx
 
 _cache_lock = threading.Lock()

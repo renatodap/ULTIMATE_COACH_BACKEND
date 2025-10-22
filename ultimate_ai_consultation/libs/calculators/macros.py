@@ -15,7 +15,7 @@ from typing import Dict, Optional
 from dataclasses import dataclass
 from enum import Enum
 
-from config import settings
+from ultimate_ai_consultation.config import settings
 
 logger = logging.getLogger(__name__)
 

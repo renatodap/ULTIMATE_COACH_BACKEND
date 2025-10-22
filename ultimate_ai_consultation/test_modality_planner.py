@@ -2,7 +2,7 @@
 Unit tests for ModalityPlanner (Phase A).
 """
 
-from services.program_generator.modality_planner import (
+from ultimate_ai_consultation.services.program_generator.modality_planner import (
     ModalityPlanner,
     ModalityPreference,
     FacilityAccess,

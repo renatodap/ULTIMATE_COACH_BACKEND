@@ -16,7 +16,7 @@ os.environ['SUPABASE_KEY'] = 'dummy'
 os.environ['SUPABASE_JWT_SECRET'] = 'dummy'
 
 from datetime import datetime
-from api.schemas.inputs import (
+from ultimate_ai_consultation.api.schemas.inputs import (
     ConsultationTranscript,
     UserDemographics,
     TrainingModalityInput,
@@ -26,7 +26,7 @@ from api.schemas.inputs import (
     GenerationOptions,
     DietaryMode,
 )
-from api.adapters.consultation_adapter import (
+from ultimate_ai_consultation.api.adapters.consultation_adapter import (
     consultation_to_user_profile,
     validate_consultation_data,
     ConsultationValidationError,

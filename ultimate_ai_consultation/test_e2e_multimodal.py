@@ -5,7 +5,7 @@ E2E test: verifies multimodal sessions are attached when preferences are provide
 from datetime import datetime
 
 from api import generate_program_from_consultation
-from api.schemas.inputs import (
+from ultimate_ai_consultation.api.schemas.inputs import (
     ConsultationTranscript,
     UserDemographics,
     TrainingAvailabilityInput,

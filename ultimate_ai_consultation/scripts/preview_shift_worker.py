@@ -1,6 +1,6 @@
 import uuid
 
-from api.schemas.inputs import (
+from ultimate_ai_consultation.api.schemas.inputs import (
     ConsultationTranscript,
     UserDemographics,
     TrainingModalityInput,
@@ -12,7 +12,7 @@ from api.schemas.inputs import (
     GenerationOptions,
     DietaryMode,
 )
-from api.generate_program import generate_program_from_consultation
+from ultimate_ai_consultation.api.generate_program import generate_program_from_consultation
 
 
 def _bundle_to_text(program_bundle) -> str:

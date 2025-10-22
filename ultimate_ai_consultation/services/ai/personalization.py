@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
 
-from libs.calculators.macros import Goal
+from ultimate_ai_consultation.libs.calculators.macros import Goal
 from .llm_client import call_llm
 
 

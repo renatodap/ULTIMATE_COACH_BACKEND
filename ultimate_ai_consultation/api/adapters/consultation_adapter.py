@@ -15,7 +15,7 @@ from typing import List, Optional, Tuple, Dict
 import logging
 from datetime import datetime
 
-from api.schemas.inputs import (
+from ultimate_ai_consultation.api.schemas.inputs import (
     ConsultationTranscript,
     GenerationOptions,
     TrainingModalityInput,
@@ -24,18 +24,18 @@ from api.schemas.inputs import (
     DifficultyInput,
     DietaryMode,
 )
-from services.program_generator.plan_generator import UserProfile
-from libs.calculators.macros import Goal
-from libs.calculators.tdee import ActivityFactor
-from services.program_generator.training_generator import ExperienceLevel, IntensityZone
-from services.program_generator.meal_assembler import DietaryPreference
-from services.program_generator.modality_planner import (
+from ultimate_ai_consultation.services.program_generator.plan_generator import UserProfile
+from ultimate_ai_consultation.libs.calculators.macros import Goal
+from ultimate_ai_consultation.libs.calculators.tdee import ActivityFactor
+from ultimate_ai_consultation.services.program_generator.training_generator import ExperienceLevel, IntensityZone
+from ultimate_ai_consultation.services.program_generator.meal_assembler import DietaryPreference
+from ultimate_ai_consultation.services.program_generator.modality_planner import (
     ModalityPreference as PlannerModalityPreference,
     FacilityAccess as PlannerFacilityAccess,
     TimeWindow as PlannerTimeWindow,
 )
-from services.ai.personalization import maybe_infer_primary_goal
-from config import get_settings
+from ultimate_ai_consultation.services.ai.personalization import maybe_infer_primary_goal
+from ultimate_ai_consultation.config import get_settings
 
 logger = logging.getLogger(__name__)
 

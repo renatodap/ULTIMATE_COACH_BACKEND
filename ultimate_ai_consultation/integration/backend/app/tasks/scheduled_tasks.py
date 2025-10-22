@@ -40,7 +40,7 @@ ultimate_ai_consultation_path = os.getenv(
 )
 sys.path.insert(0, ultimate_ai_consultation_path)
 
-from services.adaptive import ReassessmentOrchestrator
+from ultimate_ai_consultation.services.adaptive import ReassessmentOrchestrator
 
 
 # =============================================================================

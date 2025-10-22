@@ -15,9 +15,9 @@ import time
 
 from ortools.sat.python import cp_model
 
-from config import settings
-from libs.calculators.tdee import TDEEResult
-from libs.calculators.macros import MacroTargets, Goal
+from ultimate_ai_consultation.config import settings
+from ultimate_ai_consultation.libs.calculators.tdee import TDEEResult
+from ultimate_ai_consultation.libs.calculators.macros import MacroTargets, Goal
 
 logger = logging.getLogger(__name__)
 

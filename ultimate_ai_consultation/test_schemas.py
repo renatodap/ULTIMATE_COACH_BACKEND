@@ -7,13 +7,13 @@ print('=== COMPREHENSIVE SCHEMA VALIDATION ===\n')
 
 # Test imports
 print('Testing imports...')
-from api.schemas.inputs import (
+from ultimate_ai_consultation.api.schemas.inputs import (
     ConsultationTranscript,
     GenerationOptions,
     ProgressUpdate,
     UserDemographics
 )
-from api.schemas.outputs import (
+from ultimate_ai_consultation.api.schemas.outputs import (
     ProgramBundle,
     TrainingPlan,
     NutritionPlan,
@@ -21,7 +21,7 @@ from api.schemas.outputs import (
     SafetyReport,
     FeasibilityReport
 )
-from api.schemas.meta import (
+from ultimate_ai_consultation.api.schemas.meta import (
     ProgramVersion,
     Provenance,
     ValidationResult

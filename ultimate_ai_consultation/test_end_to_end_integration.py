@@ -25,7 +25,7 @@ from typing import Dict, Any
 
 # Import our API
 from api import generate_program_from_consultation, ProgramGenerationError
-from api.schemas.inputs import (
+from ultimate_ai_consultation.api.schemas.inputs import (
     ConsultationTranscript,
     UserDemographics,
     ImprovementGoalInput,

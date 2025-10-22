@@ -14,9 +14,9 @@ from pathlib import Path
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from libs.calculators.macros import Goal
-from libs.calculators.tdee import ActivityFactor
-from services.program_generator import (
+from ultimate_ai_consultation.libs.calculators.macros import Goal
+from ultimate_ai_consultation.libs.calculators.tdee import ActivityFactor
+from ultimate_ai_consultation.services.program_generator import (
     PlanGenerator,
     UserProfile,
     ExperienceLevel,

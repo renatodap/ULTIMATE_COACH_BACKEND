@@ -18,8 +18,8 @@ from typing import Tuple, List, Optional
 from datetime import datetime
 import logging
 
-from api.schemas.inputs import ConsultationTranscript, GenerationOptions
-from api.schemas.outputs import (
+from ultimate_ai_consultation.api.schemas.inputs import ConsultationTranscript, GenerationOptions
+from ultimate_ai_consultation.api.schemas.outputs import (
     ProgramBundle,
     TrainingPlan,
     NutritionPlan,
@@ -29,12 +29,12 @@ from api.schemas.outputs import (
     MultimodalInterval,
     MultimodalDrill,
 )
-from api.schemas.meta import ProgramVersion, Provenance
-from services.ai.personalization import explain_tradeoffs
-from config import get_settings
-from api.adapters import consultation_to_user_profile, validate_consultation_data, ConsultationValidationError
-from services.program_generator import PlanGenerator
-from services.program_generator.plan_generator import CompletePlan
+from ultimate_ai_consultation.api.schemas.meta import ProgramVersion, Provenance
+from ultimate_ai_consultation.services.ai.personalization import explain_tradeoffs
+from ultimate_ai_consultation.config import get_settings
+from ultimate_ai_consultation.api.adapters import consultation_to_user_profile, validate_consultation_data, ConsultationValidationError
+from ultimate_ai_consultation.services.program_generator import PlanGenerator
+from ultimate_ai_consultation.services.program_generator.plan_generator import CompletePlan
 
 logger = logging.getLogger(__name__)
 

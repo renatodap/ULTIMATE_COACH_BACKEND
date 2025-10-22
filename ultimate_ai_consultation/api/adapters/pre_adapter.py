@@ -13,7 +13,7 @@ already have the data and then pass the transcript to the generator.
 from datetime import datetime
 from typing import Dict, Any, List, Optional
 
-from api.schemas.inputs import (
+from ultimate_ai_consultation.api.schemas.inputs import (
     ConsultationTranscript,
     UserDemographics,
     TrainingAvailabilityInput,

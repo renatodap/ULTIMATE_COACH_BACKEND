@@ -14,10 +14,10 @@ from dataclasses import dataclass, asdict
 from datetime import datetime, timedelta
 import json
 
-from libs.calculators.tdee import TDEECalculator, TDEEResult, ActivityFactor
-from libs.calculators.macros import MacroCalculator, MacroTargets as CalcMacroTargets, Goal
-from services.validators.safety_gate import SafetyValidator, SafetyLevel, SafetyCheckResult
-from services.solver.constraint_solver import (
+from ultimate_ai_consultation.libs.calculators.tdee import TDEECalculator, TDEEResult, ActivityFactor
+from ultimate_ai_consultation.libs.calculators.macros import MacroCalculator, MacroTargets as CalcMacroTargets, Goal
+from ultimate_ai_consultation.services.validators.safety_gate import SafetyValidator, SafetyLevel, SafetyCheckResult
+from ultimate_ai_consultation.services.solver.constraint_solver import (
     ConstraintSolver,
     FeasibilityStatus,
     SolverResult,
