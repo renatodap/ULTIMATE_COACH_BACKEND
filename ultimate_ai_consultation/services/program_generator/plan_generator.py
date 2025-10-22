@@ -197,8 +197,11 @@ class PlanGenerator:
                     error_msg += f"  Option {i}: {option.description}\n"
             raise ValueError(error_msg)
 
-        if feasibility_result.status == FeasibilityStatus.SUBOPTIMAL:
-            warnings.append(f"Plan is suboptimal: {feasibility_result.message}")
+        # Handle ERROR and TIMEOUT statuses gracefully
+        if feasibility_result.status == FeasibilityStatus.ERROR:
+            warnings.append(f"Constraint solver encountered an error, proceeding with default parameters")
+        elif feasibility_result.status == FeasibilityStatus.TIMEOUT:
+            warnings.append(f"Constraint solver timed out, proceeding with default parameters")
 
         # Step 6: Generate training program
         training_program = self._generate_training_program(profile)

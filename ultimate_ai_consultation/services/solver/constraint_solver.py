@@ -418,8 +418,12 @@ class ConstraintSolver:
                 trade_offs=trade_offs,
             )
 
-        else:  # TIMEOUT or ERROR
-            logger.error(f"Solver {status}: runtime {runtime_ms}ms")
+        else:  # TIMEOUT, ERROR, or other status
+            # Log the status for debugging
+            status_name = str(status)
+            logger.error(f"Solver returned unexpected status {status_name} ({status}): runtime {runtime_ms}ms")
+
+            # Treat UNKNOWN as timeout, everything else as error
             return SolverResult(
                 status=FeasibilityStatus.TIMEOUT
                 if status == cp_model.UNKNOWN
