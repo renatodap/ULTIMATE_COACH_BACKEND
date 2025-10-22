@@ -12,6 +12,9 @@ anthropic>=0.34.2
 openai>=1.109.1
 groq>=0.16.0
 
+# Optimization & Solvers
+ortools==9.8.3296
+
 # Background Jobs
 celery[redis]==5.5.3
 redis==5.2.1
