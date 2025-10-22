@@ -162,7 +162,7 @@ def _transform_to_program_bundle(
     
     This function bridges the internal generator output with the public API schema.
     """
-    from services.program_generator.plan_generator import UserProfile
+    from ultimate_ai_consultation.services.program_generator.plan_generator import UserProfile
     
     # Transform training program
     training_plan = _transform_training_plan(complete_plan, consultation)
@@ -307,7 +307,7 @@ def _transform_to_program_bundle(
 
 def _transform_training_plan(complete_plan: CompletePlan, consultation: ConsultationTranscript) -> TrainingPlan:
     """Transform internal TrainingProgram to output TrainingPlan."""
-    from api.schemas.outputs import TrainingSession, ExerciseInstruction
+    from ultimate_ai_consultation.api.schemas.outputs import TrainingSession, ExerciseInstruction
     
     training_program = complete_plan.training_program
     
@@ -419,8 +419,8 @@ def _transform_training_plan(complete_plan: CompletePlan, consultation: Consulta
     # Build training plan (append optional coach notes)
     extra_notes = None
     try:
-        from services.ai.personalization import coach_notes_for_shift_worker
-        from config import get_settings
+        from ultimate_ai_consultation.services.ai.personalization import coach_notes_for_shift_worker
+        from ultimate_ai_consultation.config import get_settings
         settings = get_settings()
         if settings.ENABLE_LLM_PERSONALIZATION:
             # Simple shift-worker heuristic from consultation data
@@ -459,7 +459,7 @@ def _transform_training_plan(complete_plan: CompletePlan, consultation: Consulta
 
 def _transform_nutrition_plan(complete_plan: CompletePlan) -> NutritionPlan:
     """Transform internal meal plans to output NutritionPlan."""
-    from api.schemas.outputs import DailyMealPlan, Meal, FoodItem
+    from ultimate_ai_consultation.api.schemas.outputs import DailyMealPlan, Meal, FoodItem
     
     # Transform daily meal plans
     daily_plans = []
