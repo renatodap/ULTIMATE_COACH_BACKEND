@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/pradord/Documents/Projects/ULTIMATE_COACH_BACKEND/app/models/**)",
+      "Read(//c/Users/pradord/Documents/Projects/ULTIMATE_COACH_BACKEND/**)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
