@@ -25,7 +25,8 @@ class Settings(BaseSettings):
     # Supabase
     SUPABASE_URL: str = Field(..., description="Supabase project URL")
     SUPABASE_KEY: str = Field(..., description="Supabase service role key")
-    SUPABASE_JWT_SECRET: str = Field(..., description="JWT secret for token validation")
+    SUPABASE_JWT_SECRET: Optional[str] = Field(default=None, description="JWT secret for token validation (optional, uses JWT_SECRET if not set)")
+    JWT_SECRET: Optional[str] = Field(default=None, description="Main JWT secret (fallback for SUPABASE_JWT_SECRET)")
 
     # Environment
     ENVIRONMENT: str = Field(default="development")
@@ -144,6 +145,11 @@ class Settings(BaseSettings):
     def is_development(self) -> bool:
         """Check if running in development."""
         return self.ENVIRONMENT == "development"
+
+    @property
+    def jwt_secret(self) -> str:
+        """Get JWT secret, with fallback to JWT_SECRET if SUPABASE_JWT_SECRET not set."""
+        return self.SUPABASE_JWT_SECRET or self.JWT_SECRET or ""
 
     class Config:
         """Pydantic config (compat for pydantic v2)."""
