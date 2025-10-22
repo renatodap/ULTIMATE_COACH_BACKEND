@@ -282,13 +282,14 @@ async def get_todays_plan(
     current_user: dict = Depends(get_current_user),
 ):
     """
-    Get today's planned sessions and meals.
+    Get today's planned training session and meals with full details.
 
     Returns:
-        - Training session (if scheduled today)
-        - Meals (breakfast, lunch, dinner, snacks)
-        - Macro targets for today
-        - Any day overrides (adjustments)
+        - date: Today's date (ISO string)
+        - program: Basic program info (id, goal, start date)
+        - training_session: Full workout details with exercises (or null if rest day)
+        - meals: List of meals with food items and macros
+        - daily_targets: Calorie and macro targets
     """
     from datetime import date
 
@@ -300,32 +301,150 @@ async def get_todays_plan(
         client = storage_service.db.client
         today = date.today()
 
-        # Fetch today's calendar events
-        events_result = (
-            client.table("calendar_events")
-            .select("*")
+        # Get current active program
+        program_result = (
+            client.table("programs")
+            .select("id, user_id, primary_goal, program_start_date, program_duration_weeks, tdee, macros")
             .eq("user_id", current_user['id'])
-            .eq("date", today.isoformat())
+            .order("created_at", desc=True)
+            .limit(1)
             .execute()
         )
 
-        # Fetch any day overrides for today
-        overrides_result = (
-            client.table("day_overrides")
-            .select("*")
-            .eq("user_id", current_user['id'])
-            .eq("date", today.isoformat())
+        if not program_result.data:
+            raise HTTPException(
+                status_code=404,
+                detail="No program found. Generate a program first.",
+            )
+
+        program = program_result.data[0]
+        program_id = program["id"]
+        start_date = date.fromisoformat(program["program_start_date"])
+
+        # Calculate current week and day indices
+        days_elapsed = (today - start_date).days
+        if days_elapsed < 0:
+            # Program hasn't started yet - show week 0, day 0
+            week_index = 0
+            day_index = 0
+        else:
+            week_index = days_elapsed // 7
+            day_index = days_elapsed % 7
+
+        logger.info(
+            "calculated_day_indices",
+            user_id=current_user['id'],
+            week_index=week_index,
+            day_index=day_index,
+            days_elapsed=days_elapsed
+        )
+
+        # Fetch today's training session with exercises
+        # Sessions repeat weekly, so we use week_index % total_weeks, but for MVP just use week 0
+        session_result = (
+            client.table("session_instances")
+            .select("*, exercise_plan_items(*)")
+            .eq("program_id", program_id)
+            .eq("week_index", 0)  # Weekly repeating pattern
+            .eq("day_index", day_index)
             .execute()
         )
+
+        training_session = None
+        if session_result.data and len(session_result.data) > 0:
+            session = session_result.data[0]
+            # Format exercises for frontend
+            exercises = session.get("exercise_plan_items", [])
+            training_session = {
+                "id": session["id"],
+                "session_kind": session.get("session_kind"),
+                "session_name": session.get("session_name"),
+                "time_of_day": session.get("time_of_day"),
+                "estimated_duration_minutes": session.get("estimated_duration_minutes"),
+                "notes": session.get("notes"),
+                "state": session.get("state", "planned"),
+                "completed_at": session.get("completed_at"),
+                "exercises": [
+                    {
+                        "name": ex["name"],
+                        "muscle_groups": ex.get("muscle_groups", []),
+                        "sets": ex["sets"],
+                        "rep_range": ex.get("rep_range"),
+                        "rest_seconds": ex.get("rest_seconds", 120),
+                        "rir": ex.get("rir"),
+                        "notes": ex.get("notes"),
+                    }
+                    for ex in sorted(exercises, key=lambda e: e.get("order_index", 0))
+                ],
+            }
+
+        # Fetch today's meals with food items
+        # Meals also repeat weekly for MVP
+        meals_result = (
+            client.table("meal_instances")
+            .select("*, meal_item_plan(*)")
+            .eq("program_id", program_id)
+            .eq("week_index", 0)  # Weekly repeating pattern
+            .eq("day_index", day_index)
+            .order("order_index")
+            .execute()
+        )
+
+        meals = []
+        for meal in meals_result.data:
+            food_items = meal.get("meal_item_plan", [])
+            meals.append({
+                "id": meal["id"],
+                "meal_type": meal.get("meal_type"),
+                "meal_name": meal.get("meal_name"),
+                "notes": meal.get("notes"),
+                "completed_at": meal.get("completed_at"),
+                "totals": meal.get("totals_json", {}),
+                "items": [
+                    {
+                        "food_name": item.get("food_name"),
+                        "serving_size": item.get("serving_size"),
+                        "serving_unit": item.get("serving_unit"),
+                        "calories": item.get("calories"),
+                        "protein_g": item.get("protein_g"),
+                        "carbs_g": item.get("carbs_g"),
+                        "fat_g": item.get("fat_g"),
+                    }
+                    for item in sorted(food_items, key=lambda f: f.get("order_index", 0))
+                ],
+            })
+
+        # Extract daily targets
+        tdee_data = program.get("tdee", {})
+        macros_data = program.get("macros", {})
 
         return {
             "date": today.isoformat(),
-            "events": events_result.data,
-            "overrides": overrides_result.data,
+            "program": {
+                "id": program_id,
+                "primary_goal": program["primary_goal"],
+                "program_start_date": program["program_start_date"],
+                "duration_weeks": program["program_duration_weeks"],
+            },
+            "training_session": training_session,
+            "meals": meals,
+            "daily_targets": {
+                "calories": tdee_data.get("tdee_kcal"),
+                "protein_g": macros_data.get("protein_g"),
+                "carbs_g": macros_data.get("carbs_g"),
+                "fat_g": macros_data.get("fat_g"),
+            },
+            "week_info": {
+                "week_index": week_index,
+                "day_index": day_index,
+                "days_elapsed": days_elapsed,
+            },
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error("get_todays_plan_failed", error=str(e), user_id=current_user['id'])
+        logger.error("get_todays_plan_failed", error=str(e), user_id=current_user['id'], exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to fetch today's plan: {e}")
 
 
@@ -409,3 +528,330 @@ async def get_current_program_week(
     except Exception as e:
         logger.error("get_current_program_week_failed", error=str(e), user_id=current_user['id'])
         raise HTTPException(status_code=500, detail=f"Failed to get program week: {e}")
+
+
+@router.get("/programs/week")
+async def get_week_schedule(
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Get the full weekly schedule for the current week.
+
+    Returns a 7-day view (Monday-Sunday) with:
+        - Training sessions with exercises
+        - Meals with food items
+        - Rest days indicated by null session
+    """
+    from datetime import date, timedelta
+
+    logger.info("get_week_schedule", user_id=current_user['id'])
+
+    storage_service = ProgramStorageService()
+
+    try:
+        client = storage_service.db.client
+        today = date.today()
+
+        # Get current active program
+        program_result = (
+            client.table("programs")
+            .select("id, user_id, primary_goal, program_start_date, program_duration_weeks")
+            .eq("user_id", current_user['id'])
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+
+        if not program_result.data:
+            raise HTTPException(
+                status_code=404,
+                detail="No program found. Generate a program first.",
+            )
+
+        program = program_result.data[0]
+        program_id = program["id"]
+        start_date = date.fromisoformat(program["program_start_date"])
+
+        # Calculate current week index
+        days_elapsed = (today - start_date).days
+        if days_elapsed < 0:
+            week_index = 0
+            current_day_index = 0
+        else:
+            week_index = days_elapsed // 7
+            current_day_index = days_elapsed % 7
+
+        # Calculate week start date (Monday of current week)
+        # Python's weekday(): Monday=0, Sunday=6
+        days_since_monday = today.weekday()
+        week_start = today - timedelta(days=days_since_monday)
+
+        logger.info(
+            "fetching_week_schedule",
+            user_id=current_user['id'],
+            week_index=week_index,
+            week_start=week_start.isoformat()
+        )
+
+        # Fetch all sessions for the week (day_index 0-6)
+        # Sessions repeat weekly, so we use week 0
+        sessions_result = (
+            client.table("session_instances")
+            .select("*, exercise_plan_items(*)")
+            .eq("program_id", program_id)
+            .eq("week_index", 0)  # Weekly repeating pattern
+            .execute()
+        )
+
+        # Fetch all meals for the week
+        meals_result = (
+            client.table("meal_instances")
+            .select("*, meal_item_plan(*)")
+            .eq("program_id", program_id)
+            .eq("week_index", 0)  # Weekly repeating pattern
+            .execute()
+        )
+
+        # Organize sessions by day_index
+        sessions_by_day = {}
+        for session in sessions_result.data:
+            day_idx = session["day_index"]
+            exercises = session.get("exercise_plan_items", [])
+            sessions_by_day[day_idx] = {
+                "id": session["id"],
+                "session_kind": session.get("session_kind"),
+                "session_name": session.get("session_name"),
+                "time_of_day": session.get("time_of_day"),
+                "estimated_duration_minutes": session.get("estimated_duration_minutes"),
+                "notes": session.get("notes"),
+                "state": session.get("state", "planned"),
+                "completed_at": session.get("completed_at"),
+                "exercise_count": len(exercises),
+            }
+
+        # Organize meals by day_index
+        meals_by_day = {}
+        for meal in meals_result.data:
+            day_idx = meal["day_index"]
+            if day_idx not in meals_by_day:
+                meals_by_day[day_idx] = []
+            meals_by_day[day_idx].append({
+                "id": meal["id"],
+                "meal_type": meal.get("meal_type"),
+                "meal_name": meal.get("meal_name"),
+                "totals": meal.get("totals_json", {}),
+            })
+
+        # Build 7-day schedule
+        day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+        schedule = []
+
+        for day_idx in range(7):
+            day_date = week_start + timedelta(days=day_idx)
+            is_today = day_date == today
+
+            schedule.append({
+                "day_index": day_idx,
+                "day_name": day_names[day_idx],
+                "date": day_date.isoformat(),
+                "is_today": is_today,
+                "training_session": sessions_by_day.get(day_idx),  # None for rest days
+                "meals": meals_by_day.get(day_idx, []),
+                "is_rest_day": sessions_by_day.get(day_idx) is None,
+            })
+
+        return {
+            "week_index": week_index,
+            "week_start": week_start.isoformat(),
+            "week_end": (week_start + timedelta(days=6)).isoformat(),
+            "current_day_index": current_day_index,
+            "program": {
+                "id": program_id,
+                "primary_goal": program["primary_goal"],
+                "program_start_date": program["program_start_date"],
+                "duration_weeks": program["program_duration_weeks"],
+            },
+            "schedule": schedule,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("get_week_schedule_failed", error=str(e), user_id=current_user['id'], exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to fetch week schedule: {e}")
+
+
+@router.patch("/programs/sessions/{session_id}/complete")
+async def mark_session_complete(
+    session_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Mark a training session as completed.
+
+    Sets completed_at timestamp to current time.
+    Once marked complete, the session will show as done in the UI.
+    """
+    from datetime import datetime
+
+    logger.info("mark_session_complete", user_id=current_user['id'], session_id=session_id)
+
+    storage_service = ProgramStorageService()
+
+    try:
+        client = storage_service.db.client
+
+        # Verify ownership by joining with programs table
+        session_result = (
+            client.table("session_instances")
+            .select("id, program_id, session_name, completed_at")
+            .eq("id", session_id)
+            .single()
+            .execute()
+        )
+
+        if not session_result.data:
+            raise HTTPException(
+                status_code=404,
+                detail="Session not found",
+            )
+
+        session = session_result.data
+
+        # Verify user owns this program
+        program_result = (
+            client.table("programs")
+            .select("id, user_id")
+            .eq("id", session["program_id"])
+            .eq("user_id", current_user['id'])
+            .single()
+            .execute()
+        )
+
+        if not program_result.data:
+            raise HTTPException(
+                status_code=403,
+                detail="Unauthorized to modify this session",
+            )
+
+        # Mark as complete
+        update_result = (
+            client.table("session_instances")
+            .update({"completed_at": datetime.utcnow().isoformat()})
+            .eq("id", session_id)
+            .execute()
+        )
+
+        if not update_result.data:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to mark session complete",
+            )
+
+        logger.info(
+            "session_marked_complete",
+            user_id=current_user['id'],
+            session_id=session_id,
+            session_name=session.get("session_name")
+        )
+
+        return {
+            "success": True,
+            "session_id": session_id,
+            "completed_at": update_result.data[0]["completed_at"],
+            "message": f"Session '{session.get('session_name')}' marked complete",
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("mark_session_complete_failed", error=str(e), user_id=current_user['id'], session_id=session_id, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to mark session complete: {e}")
+
+
+@router.patch("/programs/meals/{meal_id}/complete")
+async def mark_meal_complete(
+    meal_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Mark a meal as completed.
+
+    Sets completed_at timestamp to current time.
+    Once marked complete, the meal will show as done in the UI.
+    """
+    from datetime import datetime
+
+    logger.info("mark_meal_complete", user_id=current_user['id'], meal_id=meal_id)
+
+    storage_service = ProgramStorageService()
+
+    try:
+        client = storage_service.db.client
+
+        # Verify ownership by joining with programs table
+        meal_result = (
+            client.table("meal_instances")
+            .select("id, program_id, meal_name, meal_type, completed_at")
+            .eq("id", meal_id)
+            .single()
+            .execute()
+        )
+
+        if not meal_result.data:
+            raise HTTPException(
+                status_code=404,
+                detail="Meal not found",
+            )
+
+        meal = meal_result.data
+
+        # Verify user owns this program
+        program_result = (
+            client.table("programs")
+            .select("id, user_id")
+            .eq("id", meal["program_id"])
+            .eq("user_id", current_user['id'])
+            .single()
+            .execute()
+        )
+
+        if not program_result.data:
+            raise HTTPException(
+                status_code=403,
+                detail="Unauthorized to modify this meal",
+            )
+
+        # Mark as complete
+        update_result = (
+            client.table("meal_instances")
+            .update({"completed_at": datetime.utcnow().isoformat()})
+            .eq("id", meal_id)
+            .execute()
+        )
+
+        if not update_result.data:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to mark meal complete",
+            )
+
+        logger.info(
+            "meal_marked_complete",
+            user_id=current_user['id'],
+            meal_id=meal_id,
+            meal_name=meal.get("meal_name")
+        )
+
+        return {
+            "success": True,
+            "meal_id": meal_id,
+            "completed_at": update_result.data[0]["completed_at"],
+            "message": f"{meal.get('meal_type', 'Meal')} marked complete",
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("mark_meal_complete_failed", error=str(e), user_id=current_user['id'], meal_id=meal_id, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to mark meal complete: {e}")
