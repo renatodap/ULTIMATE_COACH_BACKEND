@@ -172,10 +172,14 @@ def _transform_to_program_bundle(
     
     # Build safety report
     safety_report = SafetyReport(
-        safety_level=complete_plan.safety_result.level.value,
-        clearance_granted=complete_plan.safety_result.level.value != "blocked",
+        passed=complete_plan.safety_result.passed,
+        level=complete_plan.safety_result.level.value,
         issues=[],  # TODO: Extract from violations
-        recommendations=complete_plan.safety_result.recommendations or [],
+        # Optional fields use defaults:
+        # modifications_applied=None
+        # requires_medical_clearance=False
+        # requires_trainer_supervision=False
+        # validated_at=datetime.now()
     )
     
     # Build feasibility report
