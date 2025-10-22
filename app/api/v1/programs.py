@@ -127,37 +127,26 @@ async def generate_program(
 
         # Convert onboarding data to ConsultationTranscript
         # This is a simplified conversion - ideally user would do full consultation
+        from ultimate_ai_consultation.api.schemas.inputs import UserDemographics
+        import uuid
+
         consultation = ConsultationTranscript(
-            # User profile
-            age=profile.get("age", 30),
-            biological_sex=profile.get("biological_sex", "male"),
-            height_cm=profile.get("height_cm", 175.0),
-            current_weight_kg=profile.get("current_weight_kg", 75.0),
-            goal_weight_kg=profile.get("goal_weight_kg", 70.0),
+            # Session metadata
+            user_id=current_user['id'],
+            session_id=str(uuid.uuid4()),  # Generate session ID for this program generation
 
-            # Goals
-            primary_goal=profile.get("primary_goal", "maintain"),
-            experience_level=profile.get("experience_level", "beginner"),
+            # Demographics (wrapped in UserDemographics object)
+            demographics=UserDemographics(
+                user_id=current_user['id'],
+                age=profile.get("age", 30),
+                sex_at_birth=profile.get("biological_sex", "male"),
+                weight_kg=profile.get("current_weight_kg", 75.0),
+                height_cm=profile.get("height_cm", 175.0),
+                body_fat_percentage=profile.get("body_fat_percentage"),
+            ),
 
-            # Activity & Lifestyle
-            activity_level=profile.get("activity_level", "moderately_active"),
-            workout_frequency=profile.get("workout_frequency", 3),
-            sleep_hours=profile.get("sleep_hours", 7.5),
-            stress_level=profile.get("stress_level", "medium"),
-
-            # Dietary preferences
-            dietary_preference=profile.get("dietary_preference", "none"),
-            food_allergies=profile.get("food_allergies", []),
-            foods_to_avoid=profile.get("foods_to_avoid", []),
-            meals_per_day=request.meals_per_day or profile.get("meals_per_day", 3),
-            cooks_regularly=profile.get("cooks_regularly", True),
-
-            # Calculated targets (from onboarding)
-            estimated_tdee=profile.get("estimated_tdee"),
-            daily_calorie_goal=profile.get("daily_calorie_goal"),
-            daily_protein_goal=profile.get("daily_protein_goal"),
-            daily_carbs_goal=profile.get("daily_carbs_goal"),
-            daily_fat_goal=profile.get("daily_fat_goal"),
+            # All other fields are optional Lists with default_factory
+            # The program generator will work with just demographics
         )
 
         # Generation options
