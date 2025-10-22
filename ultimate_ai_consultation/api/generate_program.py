@@ -174,8 +174,8 @@ def _transform_to_program_bundle(
     safety_report = SafetyReport(
         safety_level=complete_plan.safety_result.level.value,
         clearance_granted=complete_plan.safety_result.level.value != "blocked",
-        issues=[],  # TODO: Extract from safety_result
-        recommendations=complete_plan.safety_result.message.split("\\n") if complete_plan.safety_result.message else [],
+        issues=[],  # TODO: Extract from violations
+        recommendations=complete_plan.safety_result.recommendations or [],
     )
     
     # Build feasibility report
