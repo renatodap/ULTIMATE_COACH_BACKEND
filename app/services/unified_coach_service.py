@@ -1970,16 +1970,16 @@ This prevents you from saying "you're behind!" when user just woke up.
 
 Example tool response:
 ```json
-{{
-  "totals": {{"calories": 500}},
-  "goals": {{"calories": 3000}},
-  "time_aware_progress": {{
+{
+  "totals": {"calories": 500},
+  "goals": {"calories": 3000},
+  "time_aware_progress": {
     "actual_progress": 0.167,  // 16.7%
     "expected_progress": 0.0,   // 0% expected at 6 AM
     "interpretation": "ahead_of_schedule",
     "message_suggestion": "You're crushing it! 500 cal already at 6 AM..."
-  }}
-}}
+  }
+}
 ```
 
 CRITICAL RULES FOR TIME-AWARE COACHING:
