@@ -1418,7 +1418,7 @@ class ToolService:
 
                     # Insert custom food into database
                     food_result = self.supabase.table("foods").insert({
-                        "user_id": user_id,  # Required for Row Level Security
+                        "created_by": user_id,  # Required for Row Level Security
                         "name": food_name,
                         "composition_type": "simple",
                         "calories_per_100g": round(per_100g_calories, 1),
