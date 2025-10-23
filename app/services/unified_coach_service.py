@@ -2455,7 +2455,11 @@ def get_unified_coach_service(
                 # DeepSeek v3.1 :exacto via OpenRouter for 95% cost savings
                 anthropic_client = AsyncOpenAI(
                     api_key=api_key,
-                    base_url="https://openrouter.ai/api/v1"
+                    base_url="https://openrouter.ai/api/v1",
+                    default_headers={
+                        "HTTP-Referer": "https://sharpened.app",  # Site URL for OpenRouter tracking
+                        "X-Title": "SHARPENED Ultimate Coach"     # App name for OpenRouter dashboard
+                    }
                 )
                 logger.info("🚀 OpenRouter client initialized with DeepSeek :exacto (OpenAI SDK)")
             except ImportError as e:
