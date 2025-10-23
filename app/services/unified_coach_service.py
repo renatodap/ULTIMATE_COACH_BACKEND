@@ -1394,16 +1394,22 @@ class UnifiedCoachService:
         # HARDCODED: Custom system prompt for specific user (testing accountability coach)
         if user_id == "b06aed27-7309-44c1-8048-c75d13ae6949":
             from datetime import datetime
-            current_date = datetime.now().strftime("%B %d, %Y")  # "October 23, 2025"
-            current_time = datetime.now().strftime("%I:%M %p")   # "11:43 PM"
+            import pytz
 
-            # Calculate days until half marathon (Nov 8, 2025)
+            # USE EASTERN TIME (user's timezone)
+            eastern = pytz.timezone('America/New_York')
+            now_eastern = datetime.now(eastern)
+
+            current_date = now_eastern.strftime("%B %d, %Y")  # "October 22, 2025"
+            current_time = now_eastern.strftime("%I:%M %p")   # "12:10 AM"
+
+            # Calculate days until half marathon (Nov 8, 2025) - use Eastern date
             half_marathon_date = datetime(2025, 11, 8)
-            days_until_half_marathon = (half_marathon_date - datetime.now()).days
+            days_until_half_marathon = (half_marathon_date - now_eastern.replace(tzinfo=None)).days
 
             # Calculate days until tennis season (Feb 15, 2026 - mid-February)
             tennis_season_date = datetime(2026, 2, 15)
-            days_until_tennis = (tennis_season_date - datetime.now()).days
+            days_until_tennis = (tennis_season_date - now_eastern.replace(tzinfo=None)).days
 
             return f"""# ACCOUNTABILITY COACH - WEIGHT LOSS & PERFORMANCE SYSTEM
 
