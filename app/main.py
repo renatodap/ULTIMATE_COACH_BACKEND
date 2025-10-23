@@ -374,49 +374,60 @@ async def root():
     }
 
 
-# Import and include routers
-from app.api.v1 import health, auth, users, onboarding, training_modalities, foods, meals, activities, quick_meals, templates, body_metrics, dashboard, exercise_sets, coach, wearables, planning, programs, calendar  # consultation disabled for MVP
-from app.api.v1.planlogs import router as planlogs_router
+# ========================================================================
+# WEEK 1 MVP: RUTHLESS SCOPE CUT
+# ========================================================================
+# Only keeping essential routers for AI-first coach experience:
+# - health: Health checks
+# - auth: Authentication (signup, login, logout)
+# - users: User profile (needed for settings page)
+# - onboarding: User onboarding flow
+# - foods: Food database (coach needs this for nutrition advice)
+# - coach: AI coach chat (CORE FEATURE)
+#
+# All other routers disabled - functionality will be re-implemented through
+# coach chat interface in future weeks (chat-based logging, advice, etc.)
+# ========================================================================
+
+# Import only essential routers
+from app.api.v1 import health, auth, users, onboarding, foods, coach
 
 app.include_router(health.router, prefix="/api/v1", tags=["Health"])
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentication"])
 app.include_router(users.router, prefix="/api/v1/users", tags=["Users"])
 app.include_router(onboarding.router, prefix="/api/v1/onboarding", tags=["Onboarding"])
-app.include_router(training_modalities.router, prefix="/api/v1/training-modalities", tags=["Training Modalities"])
+app.include_router(foods.router, prefix="/api/v1", tags=["Nutrition - Foods"])
+app.include_router(coach.router, prefix="/api/v1", tags=["AI Coach"])
+
+# ========================================================================
+# DISABLED FOR WEEK 1 MVP - Will re-enable in future weeks
+# ========================================================================
+# from app.api.v1 import training_modalities, meals, activities, quick_meals
+# from app.api.v1 import templates, body_metrics, dashboard, exercise_sets
+# from app.api.v1 import wearables, planning, programs, calendar
+# from app.api.v1.planlogs import router as planlogs_router
+#
+# app.include_router(training_modalities.router, prefix="/api/v1/training-modalities", tags=["Training Modalities"])
+# app.include_router(dashboard.router, prefix="/api/v1", tags=["Dashboard"])
+# app.include_router(meals.router, prefix="/api/v1", tags=["Nutrition - Meals"])
+# app.include_router(quick_meals.router, prefix="/api/v1", tags=["Nutrition - Quick Meals"])
+# app.include_router(activities.router, prefix="/api/v1", tags=["Activities"])
+# app.include_router(templates.router, prefix="/api/v1", tags=["Activity Templates"])
+# app.include_router(body_metrics.router, prefix="/api/v1", tags=["Body Metrics"])
+# app.include_router(exercise_sets.router, prefix="/api/v1", tags=["Exercise Sets"])
+# app.include_router(wearables.router, prefix="/api/v1", tags=["Wearables"])
+# app.include_router(programs.router, prefix="/api/v1", tags=["Programs"])
+# app.include_router(calendar.router, prefix="/api/v1", tags=["Calendar"])
+# app.include_router(planning.router, prefix="/api/v1", tags=["Planning & Adaptive"])
+# app.include_router(planlogs_router, prefix="/api/v1/planlogs", tags=["Plan Logs"])
 
 # ========================================================================
 # CONSULTATION AI - DISABLED FOR MVP
 # ========================================================================
 # The Consultation AI is a premium onboarding feature with 15 tools for
-# structured data collection (training modalities, exercises, meal timing,
-# goals, challenges, etc.). It's currently disabled because:
-#   - Frontend UI is incomplete (placeholder only)
-#   - Premium feature (requires consultation keys)
-#   - Not part of core MVP (activities + nutrition tracking)
-#   - Reduces tool complexity from 27 → 12 tools (56% reduction)
-#
-# To re-enable:
-#   1. Uncomment the import above (consultation)
-#   2. Uncomment the router include below
-#   3. Complete frontend UI at /dashboard/consultation
-#   4. Test consultation key redemption flow
-#
+# structured data collection. Will be re-enabled in Week 4 as core onboarding.
 # app.include_router(consultation.router, prefix="/api/v1", tags=["Consultation"])
 # ========================================================================
-app.include_router(dashboard.router, prefix="/api/v1", tags=["Dashboard"])
-app.include_router(foods.router, prefix="/api/v1", tags=["Nutrition - Foods"])
-app.include_router(meals.router, prefix="/api/v1", tags=["Nutrition - Meals"])
-app.include_router(quick_meals.router, prefix="/api/v1", tags=["Nutrition - Quick Meals"])
-app.include_router(activities.router, prefix="/api/v1", tags=["Activities"])
-app.include_router(templates.router, prefix="/api/v1", tags=["Activity Templates"])
-app.include_router(body_metrics.router, prefix="/api/v1", tags=["Body Metrics"])
-app.include_router(exercise_sets.router, prefix="/api/v1", tags=["Exercise Sets"])
-app.include_router(coach.router, prefix="/api/v1", tags=["AI Coach"])
-app.include_router(wearables.router, prefix="/api/v1", tags=["Wearables"])
-app.include_router(programs.router, prefix="/api/v1", tags=["Programs"])  # NEW: Proper auth-based endpoints
-app.include_router(calendar.router, prefix="/api/v1", tags=["Calendar"])  # Calendar views and progress tracking
-app.include_router(planning.router, prefix="/api/v1", tags=["Planning & Adaptive"])  # OLD: Legacy endpoints with user_id params
-app.include_router(planlogs_router, prefix="/api/v1/planlogs", tags=["Plan Logs"])
 
 
 if __name__ == "__main__":
