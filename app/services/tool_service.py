@@ -16,11 +16,18 @@ Provides 12 tools for on-demand data fetching:
 12. estimate_activity_calories - Calorie estimation
 
 This is 80% cheaper than full RAG - only fetches what's needed!
+
+Week 2 Optimization: Intelligent Caching
+- User profiles cached (5min TTL)
+- Daily summaries cached (1min TTL)
+- Food searches cached (30min TTL)
+- Reduces database load and improves response time
 """
 
 import structlog
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
+from app.services.cache_service import get_cache_service
 
 logger = structlog.get_logger()
 
@@ -293,10 +300,13 @@ class ToolService:
     Executes tools for agentic AI coach.
 
     Each tool is a function that can be called by Claude/Groq.
+
+    Week 2 Optimization: Intelligent caching for frequently accessed data.
     """
 
     def __init__(self, supabase_client):
         self.supabase = supabase_client
+        self.cache = get_cache_service()  # Week 2: Add caching layer
 
     async def execute_tool(
         self,
@@ -352,7 +362,18 @@ class ToolService:
     # ========================================================================
 
     async def _get_user_profile(self, user_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
-        """Get user profile with goals and preferences."""
+        """
+        Get user profile with goals and preferences.
+
+        Week 2 Optimization: Cached with 5min TTL (profiles change infrequently)
+        """
+        # Check cache first
+        cache_key = f"user_profile:{user_id}"
+        cached_result = self.cache.get(cache_key)
+        if cached_result:
+            logger.debug(f"[ToolService] ✅ Cache hit: user_profile")
+            return cached_result
+
         try:
             result = self.supabase.table("profiles")\
                 .select("*")\
@@ -366,7 +387,7 @@ class ToolService:
             profile = result.data
 
             # Format response
-            return {
+            formatted_profile = {
                 "full_name": profile.get("full_name"),
                 "primary_goal": profile.get("primary_goal"),
                 "experience_level": profile.get("experience_level"),
@@ -377,6 +398,13 @@ class ToolService:
                 "unit_system": profile.get("unit_system", "imperial"),
                 "language": profile.get("language", "en")
             }
+
+            # Cache for 5 minutes (300 seconds)
+            self.cache.set(cache_key, formatted_profile, ttl=300)
+            logger.debug(f"[ToolService] 💾 Cached: user_profile (5min TTL)")
+
+            return formatted_profile
+
         except Exception as e:
             logger.error(f"[ToolService] get_user_profile failed: {e}")
             return {"error": str(e)}
@@ -389,11 +417,20 @@ class ToolService:
         3. Partial matches in foods table
         4. Prioritize by composition_type (simple > composed > branded)
         5. Track user frequency (future enhancement)
+
+        Week 2 Optimization: Cached with 30min TTL (food database rarely changes)
         """
         try:
             query = params["query"].lower().strip()
             limit = min(params.get("limit", 5), 10)  # Max 10 results
             user_id = params.get("user_id")  # Passed from execute_tool
+
+            # Check cache first
+            cache_key = f"food_search:{user_id or 'public'}:{query}:{limit}"
+            cached_result = self.cache.get(cache_key)
+            if cached_result:
+                logger.debug(f"[ToolService] ✅ Cache hit: food_search({query})")
+                return cached_result
 
             results = []
             seen_names = set()  # Deduplicate
@@ -515,6 +552,11 @@ class ToolService:
 
                 results.append(result_item)
 
+            # Cache results for 30 minutes (1800 seconds)
+            cache_key = f"food_search:{user_id or 'public'}:{query}:{limit}"
+            self.cache.set(cache_key, results, ttl=1800)
+            logger.debug(f"[ToolService] 💾 Cached: food_search({query}) - {len(results)} results (30min TTL)")
+
             return results
 
         except Exception as e:
@@ -576,17 +618,26 @@ class ToolService:
         Get today's nutrition totals with TIME-AWARE PROGRESS.
 
         NEW: Includes time-aware analysis to prevent "you're behind!" at 6 AM.
+        Week 2 Optimization: Cached with 1min TTL (nutrition changes frequently)
         """
-        try:
-            from datetime import date, datetime, time
-            from app.utils.time_aware_progress import calculate_time_aware_progress
+        from datetime import date, datetime, time
+        from app.utils.time_aware_progress import calculate_time_aware_progress
 
-            # Get target date (default: today)
-            target_date_str = params.get("date")
-            if target_date_str:
-                target_date = datetime.fromisoformat(target_date_str).date()
-            else:
-                target_date = date.today()
+        # Get target date (default: today)
+        target_date_str = params.get("date")
+        if target_date_str:
+            target_date = datetime.fromisoformat(target_date_str).date()
+        else:
+            target_date = date.today()
+
+        # Check cache first (very short TTL since nutrition changes throughout the day)
+        cache_key = f"daily_nutrition:{user_id}:{target_date.isoformat()}"
+        cached_result = self.cache.get(cache_key)
+        if cached_result:
+            logger.debug(f"[ToolService] ✅ Cache hit: daily_nutrition_summary({target_date})")
+            return cached_result
+
+        try:
 
             # Query meals for this date
             start_of_day = datetime.combine(target_date, time.min)
@@ -674,6 +725,11 @@ class ToolService:
                     response["message"] = "No meals logged for this date yet."
             elif time_aware:
                 response["message"] = time_aware["message_suggestion"]
+
+            # Cache for 1 minute (60 seconds) - nutrition changes frequently
+            cache_key = f"daily_nutrition:{user_id}:{target_date.isoformat()}"
+            self.cache.set(cache_key, response, ttl=60)
+            logger.debug(f"[ToolService] 💾 Cached: daily_nutrition_summary({target_date}) (1min TTL)")
 
             return response
 
