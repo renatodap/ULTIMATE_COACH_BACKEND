@@ -2444,9 +2444,10 @@ def get_unified_coach_service(
             try:
                 from anthropic import AsyncAnthropic
                 # OpenRouter supports Anthropic API format
+                # NOTE: Anthropic SDK adds /v1/messages automatically, so base_url should NOT include /v1
                 anthropic_client = AsyncAnthropic(
                     api_key=api_key,
-                    base_url="https://openrouter.ai/api/v1"
+                    base_url="https://openrouter.ai/api"
                 )
                 logger.info("🚀 OpenRouter client initialized with DeepSeek :exacto")
             except ImportError as e:
