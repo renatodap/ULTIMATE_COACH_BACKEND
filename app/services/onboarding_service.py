@@ -25,36 +25,39 @@ class OnboardingService:
 
     def derive_age(
         self,
-        birth_date: Optional[date],
-        age: Optional[int]
+        birth_date: Optional[date]
     ) -> int:
         """
-        Derive age from birth_date or use provided age.
+        Derive age from birth_date ONLY.
+
+        CRITICAL: Age must ALWAYS be calculated from birth_date, never accepted as input.
+        This ensures age accuracy and automatic updates on birthdays.
 
         Args:
-            birth_date: User's birth date (optional)
-            age: User's age (optional)
+            birth_date: User's birth date (REQUIRED)
 
         Returns:
-            Derived or provided age as integer
+            Derived age as integer
 
         Raises:
-            ValueError: If both birth_date and age are None
+            ValueError: If birth_date is None
         """
-        if birth_date:
-            today = date.today()
-            derived_age = int((today - birth_date).days // 365.25)
-            logger.info(
-                "age_derived_from_birth_date",
-                birth_date=str(birth_date),
-                derived_age=derived_age
-            )
-            return derived_age
-        elif age is not None:
-            logger.info("age_provided_directly", age=age)
-            return int(age)
-        else:
-            raise ValueError("Either birth_date or age is required")
+        if not birth_date:
+            raise ValueError("birth_date is required to calculate age")
+
+        today = date.today()
+        derived_age = int((today - birth_date).days // 365.25)
+
+        # Validate reasonable age range
+        if derived_age < 13 or derived_age > 120:
+            raise ValueError(f"Derived age ({derived_age}) must be between 13 and 120. Please check birth_date.")
+
+        logger.info(
+            "age_derived_from_birth_date",
+            birth_date=str(birth_date),
+            derived_age=derived_age
+        )
+        return derived_age
 
     def calculate_macro_targets(
         self,
@@ -177,21 +180,21 @@ class OnboardingService:
             'macros_calculation_reason': 'initial_onboarding',
         }
 
-        # Add optional fields if present
+        # Add birth_date if present
+        # CRITICAL: We store birth_date, NOT age. Age is calculated dynamically.
         if 'birth_date' in onboarding_data and onboarding_data['birth_date']:
             if isinstance(onboarding_data['birth_date'], date):
                 profile_update['birth_date'] = onboarding_data['birth_date'].isoformat()
             else:
                 profile_update['birth_date'] = onboarding_data['birth_date']
 
-        if 'age' in onboarding_data and onboarding_data['age'] is not None:
-            profile_update['age'] = onboarding_data['age']
+        # NOTE: We do NOT store 'age' in the database.
+        # Age is derived from birth_date on every read to ensure accuracy.
 
         logger.info(
             "profile_update_prepared",
             field_count=len(profile_update),
-            has_birth_date='birth_date' in profile_update,
-            has_age='age' in profile_update
+            has_birth_date='birth_date' in profile_update
         )
 
         return profile_update
@@ -205,6 +208,9 @@ class OnboardingService:
         """
         Save user's selected training modalities to user_training_modalities table.
 
+        IMPORTANT: This is now a CRITICAL operation. If user selects modalities,
+        they MUST be saved for personalized recommendations.
+
         Args:
             user_id: User UUID
             training_modalities: List of training modality selections
@@ -212,10 +218,13 @@ class OnboardingService:
             user_token: Optional JWT token for RLS
 
         Returns:
-            True if successful, False if failed (non-critical)
+            True if successful, raises exception if critical failure
+
+        Raises:
+            Exception: If modalities were selected but failed to save
         """
         if not training_modalities:
-            logger.info(
+            log_event(
                 "no_training_modalities_to_save",
                 user_id=str(user_id)
             )
@@ -244,23 +253,292 @@ class OnboardingService:
                 )
                 return True
             else:
+                # CRITICAL: User selected modalities but save failed
                 log_event(
                     "onboarding_training_modalities_save_failed",
-                    level="warn",
+                    level="error",
                     user_id=str(user_id),
-                    error="No data returned from insert"
+                    error="No data returned from insert",
+                    modality_count=len(records)
                 )
-                return False
+                raise Exception("Failed to save training modalities - no data returned")
 
         except Exception as e:
             log_event(
                 "onboarding_training_modalities_save_error",
-                level="warn",
+                level="error",
                 user_id=str(user_id),
                 error=str(e),
                 modality_count=len(training_modalities)
             )
-            return False
+            # Re-raise to fail onboarding if modalities can't be saved
+            raise Exception(f"Failed to save training modalities: {str(e)}")
+
+    async def save_exercise_familiarity(
+        self,
+        user_id: UUID,
+        exercise_familiarity: list[Dict[str, Any]],
+        user_token: Optional[str] = None
+    ) -> bool:
+        """Save user's exercise familiarity to user_familiar_exercises table."""
+        if not exercise_familiarity:
+            return True
+
+        try:
+            records = []
+            for entry in exercise_familiarity:
+                records.append({
+                    'user_id': str(user_id),
+                    'exercise_id': entry['exercise_id'],
+                    'comfort_level': entry['comfort_level'],
+                    'typical_weight_kg': entry.get('typical_weight_kg'),
+                    'typical_reps': entry.get('typical_reps'),
+                    'typical_duration_minutes': entry.get('typical_duration_minutes'),
+                    'frequency': entry.get('frequency'),
+                    'enjoys_it': entry.get('enjoys_it'),
+                    'source': 'onboarding'
+                })
+
+            result = self.supabase_service.client.table('user_familiar_exercises').insert(records).execute()
+            if result.data:
+                log_event("onboarding_exercise_familiarity_saved", user_id=str(user_id), count=len(records))
+                return True
+            raise Exception("No data returned from insert")
+
+        except Exception as e:
+            log_event("onboarding_exercise_familiarity_save_error", level="error", user_id=str(user_id), error=str(e))
+            return False  # Non-critical
+
+    async def save_training_availability(
+        self,
+        user_id: UUID,
+        training_availability: list[Dict[str, Any]],
+        user_token: Optional[str] = None
+    ) -> bool:
+        """Save user's training availability to user_training_availability table."""
+        if not training_availability:
+            return True
+
+        try:
+            records = []
+            for entry in training_availability:
+                records.append({
+                    'user_id': str(user_id),
+                    'day_of_week': entry['day_of_week'],
+                    'time_of_day': entry['time_of_day'],
+                    'typical_duration_minutes': entry['typical_duration_minutes'],
+                    'location_type': entry['location_type'],
+                    'is_preferred': entry.get('is_preferred', False)
+                })
+
+            result = self.supabase_service.client.table('user_training_availability').insert(records).execute()
+            if result.data:
+                log_event("onboarding_training_availability_saved", user_id=str(user_id), count=len(records))
+                return True
+            raise Exception("No data returned from insert")
+
+        except Exception as e:
+            log_event("onboarding_training_availability_save_error", level="error", user_id=str(user_id), error=str(e))
+            return False  # Non-critical
+
+    async def save_meal_timing_preferences(
+        self,
+        user_id: UUID,
+        meal_timing_preferences: list[Dict[str, Any]],
+        user_token: Optional[str] = None
+    ) -> bool:
+        """Save user's meal timing preferences to user_preferred_meal_times table."""
+        if not meal_timing_preferences:
+            return True
+
+        try:
+            records = []
+            for entry in meal_timing_preferences:
+                records.append({
+                    'user_id': str(user_id),
+                    'meal_time_id': entry['meal_time_id'],
+                    'typical_portion_size': entry['typical_portion_size'],
+                    'flexibility_minutes': entry.get('flexibility_minutes', 30),
+                    'is_non_negotiable': entry.get('is_non_negotiable', False)
+                })
+
+            result = self.supabase_service.client.table('user_preferred_meal_times').insert(records).execute()
+            if result.data:
+                log_event("onboarding_meal_timing_saved", user_id=str(user_id), count=len(records))
+                return True
+            raise Exception("No data returned from insert")
+
+        except Exception as e:
+            log_event("onboarding_meal_timing_save_error", level="error", user_id=str(user_id), error=str(e))
+            return False  # Non-critical
+
+    async def save_typical_foods(
+        self,
+        user_id: UUID,
+        typical_foods: list[Dict[str, Any]],
+        user_token: Optional[str] = None
+    ) -> bool:
+        """Save user's typical foods to user_typical_meal_foods table."""
+        if not typical_foods:
+            return True
+
+        try:
+            records = []
+            for entry in typical_foods:
+                records.append({
+                    'user_id': str(user_id),
+                    'food_id': entry['food_id'],
+                    'meal_time_id': entry.get('meal_time_id'),
+                    'frequency': entry['frequency'],
+                    'typical_quantity_grams': entry.get('typical_quantity_grams'),
+                    'typical_serving_id': entry.get('typical_serving_id')
+                })
+
+            result = self.supabase_service.client.table('user_typical_meal_foods').insert(records).execute()
+            if result.data:
+                log_event("onboarding_typical_foods_saved", user_id=str(user_id), count=len(records))
+                return True
+            raise Exception("No data returned from insert")
+
+        except Exception as e:
+            log_event("onboarding_typical_foods_save_error", level="error", user_id=str(user_id), error=str(e))
+            return False  # Non-critical
+
+    async def save_upcoming_events(
+        self,
+        user_id: UUID,
+        upcoming_events: list[Dict[str, Any]],
+        user_token: Optional[str] = None
+    ) -> bool:
+        """Save user's upcoming events to user_upcoming_events table."""
+        if not upcoming_events:
+            return True
+
+        try:
+            records = []
+            for entry in upcoming_events:
+                record = {
+                    'user_id': str(user_id),
+                    'event_type_id': entry.get('event_type_id'),
+                    'event_name': entry['event_name'],
+                    'event_date': entry.get('event_date'),
+                    'priority': entry.get('priority', 3),
+                    'specific_goals': entry.get('specific_goals', [])
+                }
+                # Convert date to string if needed
+                if record['event_date'] and isinstance(record['event_date'], date):
+                    record['event_date'] = record['event_date'].isoformat()
+                records.append(record)
+
+            result = self.supabase_service.client.table('user_upcoming_events').insert(records).execute()
+            if result.data:
+                log_event("onboarding_upcoming_events_saved", user_id=str(user_id), count=len(records))
+                return True
+            raise Exception("No data returned from insert")
+
+        except Exception as e:
+            log_event("onboarding_upcoming_events_save_error", level="error", user_id=str(user_id), error=str(e))
+            return False  # Non-critical
+
+    async def save_improvement_goals(
+        self,
+        user_id: UUID,
+        improvement_goals: list[Dict[str, Any]],
+        user_token: Optional[str] = None
+    ) -> bool:
+        """Save user's improvement goals to user_improvement_goals table."""
+        if not improvement_goals:
+            return True
+
+        try:
+            records = []
+            for entry in improvement_goals:
+                record = {
+                    'user_id': str(user_id),
+                    'goal_type': entry['goal_type'],
+                    'target_description': entry['target_description'],
+                    'current_value': entry.get('current_value'),
+                    'target_value': entry.get('target_value'),
+                    'target_date': entry.get('target_date'),
+                    'exercise_id': entry.get('exercise_id')
+                }
+                # Convert date to string if needed
+                if record['target_date'] and isinstance(record['target_date'], date):
+                    record['target_date'] = record['target_date'].isoformat()
+                records.append(record)
+
+            result = self.supabase_service.client.table('user_improvement_goals').insert(records).execute()
+            if result.data:
+                log_event("onboarding_improvement_goals_saved", user_id=str(user_id), count=len(records))
+                return True
+            raise Exception("No data returned from insert")
+
+        except Exception as e:
+            log_event("onboarding_improvement_goals_save_error", level="error", user_id=str(user_id), error=str(e))
+            return False  # Non-critical
+
+    async def save_difficulties(
+        self,
+        user_id: UUID,
+        difficulties: list[Dict[str, Any]],
+        user_token: Optional[str] = None
+    ) -> bool:
+        """Save user's difficulties to user_difficulties table."""
+        if not difficulties:
+            return True
+
+        try:
+            records = []
+            for entry in difficulties:
+                records.append({
+                    'user_id': str(user_id),
+                    'difficulty_category': entry['difficulty_category'],
+                    'description': entry['description'],
+                    'severity': entry.get('severity', 3),
+                    'frequency': entry.get('frequency')
+                })
+
+            result = self.supabase_service.client.table('user_difficulties').insert(records).execute()
+            if result.data:
+                log_event("onboarding_difficulties_saved", user_id=str(user_id), count=len(records))
+                return True
+            raise Exception("No data returned from insert")
+
+        except Exception as e:
+            log_event("onboarding_difficulties_save_error", level="error", user_id=str(user_id), error=str(e))
+            return False  # Non-critical
+
+    async def save_non_negotiables(
+        self,
+        user_id: UUID,
+        non_negotiables: list[Dict[str, Any]],
+        user_token: Optional[str] = None
+    ) -> bool:
+        """Save user's non-negotiables to user_non_negotiables table."""
+        if not non_negotiables:
+            return True
+
+        try:
+            records = []
+            for entry in non_negotiables:
+                records.append({
+                    'user_id': str(user_id),
+                    'constraint_type': entry['constraint_type'],
+                    'description': entry['description'],
+                    'reason': entry.get('reason'),
+                    'excluded_exercise_ids': entry.get('excluded_exercise_ids', []),
+                    'excluded_food_ids': entry.get('excluded_food_ids', [])
+                })
+
+            result = self.supabase_service.client.table('user_non_negotiables').insert(records).execute()
+            if result.data:
+                log_event("onboarding_non_negotiables_saved", user_id=str(user_id), count=len(records))
+                return True
+            raise Exception("No data returned from insert")
+
+        except Exception as e:
+            log_event("onboarding_non_negotiables_save_error", level="error", user_id=str(user_id), error=str(e))
+            return False  # Non-critical
 
     async def seed_initial_body_metrics(
         self,
@@ -343,11 +621,9 @@ class OnboardingService:
             activity_level=onboarding_data.get('activity_level')
         )
 
-        # Step 1: Derive age
-        age = self.derive_age(
-            onboarding_data.get('birth_date'),
-            onboarding_data.get('age')
-        )
+        # Step 1: Derive age from birth_date ONLY
+        # CRITICAL: We ignore any 'age' field sent by frontend
+        age = self.derive_age(onboarding_data.get('birth_date'))
 
         # Step 2: Calculate macro targets
         targets = self.calculate_macro_targets(
@@ -387,7 +663,7 @@ class OnboardingService:
             onboarding_completed=True
         )
 
-        # Step 5: Save training modalities (non-critical)
+        # Step 5: Save training modalities (critical if provided)
         training_modalities = onboarding_data.get('training_modalities', [])
         if training_modalities:
             await self.save_training_modalities(
@@ -396,13 +672,72 @@ class OnboardingService:
                 user_token=user_token
             )
 
-        # Step 6: Seed initial body metrics (non-critical)
+        # Step 6: Save consultation data (all non-critical, skippable)
+        # Phase 2: Training Background
+        await self.save_exercise_familiarity(
+            user_id,
+            onboarding_data.get('exercise_familiarity', []),
+            user_token=user_token
+        )
+        await self.save_training_availability(
+            user_id,
+            onboarding_data.get('training_availability', []),
+            user_token=user_token
+        )
+
+        # Phase 3: Nutrition Profile
+        await self.save_meal_timing_preferences(
+            user_id,
+            onboarding_data.get('meal_timing_preferences', []),
+            user_token=user_token
+        )
+        await self.save_typical_foods(
+            user_id,
+            onboarding_data.get('typical_foods', []),
+            user_token=user_token
+        )
+
+        # Phase 4: Goals & Context
+        await self.save_upcoming_events(
+            user_id,
+            onboarding_data.get('upcoming_events', []),
+            user_token=user_token
+        )
+        await self.save_improvement_goals(
+            user_id,
+            onboarding_data.get('improvement_goals', []),
+            user_token=user_token
+        )
+        await self.save_difficulties(
+            user_id,
+            onboarding_data.get('difficulties', []),
+            user_token=user_token
+        )
+        await self.save_non_negotiables(
+            user_id,
+            onboarding_data.get('non_negotiables', []),
+            user_token=user_token
+        )
+
+        # Step 7: Seed initial body metrics (non-critical)
         await self.seed_initial_body_metrics(
             user_id,
             onboarding_data['current_weight_kg'],
             onboarding_data['height_cm'],
             user_token=user_token
         )
+
+        # Count consultation data entries for logging
+        consultation_counts = {
+            'exercise_familiarity': len(onboarding_data.get('exercise_familiarity', [])),
+            'training_availability': len(onboarding_data.get('training_availability', [])),
+            'meal_timing_preferences': len(onboarding_data.get('meal_timing_preferences', [])),
+            'typical_foods': len(onboarding_data.get('typical_foods', [])),
+            'upcoming_events': len(onboarding_data.get('upcoming_events', [])),
+            'improvement_goals': len(onboarding_data.get('improvement_goals', [])),
+            'difficulties': len(onboarding_data.get('difficulties', [])),
+            'non_negotiables': len(onboarding_data.get('non_negotiables', []))
+        }
 
         log_event(
             "onboarding_completed",
@@ -411,7 +746,8 @@ class OnboardingService:
             secondary_goal=onboarding_data.get('secondary_goal'),
             daily_calories=targets.daily_calories,
             has_fitness_notes=bool(onboarding_data.get('fitness_notes')),
-            training_modalities_count=len(training_modalities)
+            training_modalities_count=len(training_modalities),
+            consultation_data_counts=consultation_counts
         )
 
         return updated_profile, targets

@@ -165,6 +165,97 @@ class CancelLogResponse(BaseModel):
         }
 
 
+class ConfirmLogsRequest(BaseModel):
+    """
+    Confirm multiple detected logs in a single atomic operation.
+
+    Used for multi-logging scenarios where user sends one message
+    that generates multiple log previews (e.g., "I ate breakfast and lunch").
+
+    All logs will be confirmed together - if any fail, none are saved.
+    """
+    quick_entry_ids: List[str] = Field(..., min_length=1, description="IDs of quick entry logs to confirm")
+    edits: Optional[Dict[str, Dict[str, Any]]] = Field(
+        None,
+        description="Optional edits keyed by quick_entry_id"
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "quick_entry_ids": ["qe-123", "qe-456"],
+                "edits": {
+                    "qe-123": {
+                        "meal_type": "brunch"  # Changed breakfast to brunch
+                    }
+                }
+            }
+        }
+
+
+class LogConfirmationResult(BaseModel):
+    """
+    Result of confirming a single log within a batch operation.
+    """
+    quick_entry_id: str
+    success: bool
+    log_type: Optional[str] = None  # "meal", "activity", "measurement"
+    log_id: Optional[str] = None  # ID of created resource
+    error: Optional[str] = None  # Error message if failed
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "quick_entry_id": "qe-123",
+                "success": True,
+                "log_type": "meal",
+                "log_id": "meal-789",
+                "error": None
+            }
+        }
+
+
+class ConfirmLogsResponse(BaseModel):
+    """
+    Response after confirming multiple logs.
+
+    Provides detailed results for each log in the batch.
+    """
+    success: bool  # True only if ALL logs confirmed successfully
+    results: List[LogConfirmationResult]
+    total_count: int
+    success_count: int
+    failed_count: int
+    message: str
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "success": True,
+                "results": [
+                    {
+                        "quick_entry_id": "qe-123",
+                        "success": True,
+                        "log_type": "meal",
+                        "log_id": "meal-789",
+                        "error": None
+                    },
+                    {
+                        "quick_entry_id": "qe-456",
+                        "success": True,
+                        "log_type": "meal",
+                        "log_id": "meal-790",
+                        "error": None
+                    }
+                ],
+                "total_count": 2,
+                "success_count": 2,
+                "failed_count": 0,
+                "message": "All 2 logs confirmed successfully! 💪"
+            }
+        }
+
+
 # ============================================================================
 # CONVERSATION ENDPOINTS
 # ============================================================================

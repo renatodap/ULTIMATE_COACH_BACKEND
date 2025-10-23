@@ -124,6 +124,107 @@ class TrainingModalitySelection(BaseModel):
     is_primary: bool = Field(default=False, description="Whether this is the user's primary modality")
 
 
+class ExerciseFamiliarityEntry(BaseModel):
+    """User's familiarity with a specific exercise."""
+    exercise_id: str = Field(..., description="UUID of exercise")
+    comfort_level: int = Field(..., ge=1, le=5, description="Comfort level 1-5 (1=uncomfortable, 5=mastered)")
+    typical_weight_kg: Optional[float] = Field(default=None, ge=0, description="Typical weight for strength exercises")
+    typical_reps: Optional[int] = Field(default=None, ge=1, le=100, description="Typical reps per set")
+    typical_duration_minutes: Optional[int] = Field(default=None, ge=1, le=180, description="Typical duration for cardio")
+    frequency: Optional[Literal['rarely', 'occasionally', 'regularly', 'frequently']] = Field(
+        default=None,
+        description="How often they perform this exercise"
+    )
+    enjoys_it: Optional[bool] = Field(default=None, description="Whether they enjoy this exercise")
+
+
+class TrainingAvailabilitySlot(BaseModel):
+    """User's training availability for a specific day and time."""
+    day_of_week: int = Field(..., ge=1, le=7, description="1=Monday, 7=Sunday")
+    time_of_day: Literal['early_morning', 'morning', 'midday', 'afternoon', 'evening', 'night'] = Field(
+        ...,
+        description="Time of day for training"
+    )
+    typical_duration_minutes: int = Field(..., ge=15, le=240, description="Typical session duration")
+    location_type: Literal['home', 'gym', 'outdoor', 'flexible'] = Field(
+        ...,
+        description="Where they train"
+    )
+    is_preferred: bool = Field(default=False, description="Preferred time vs just available")
+
+
+class MealTimingPreference(BaseModel):
+    """User's preferred meal timing."""
+    meal_time_id: str = Field(..., description="UUID of meal time from meal_times table")
+    typical_portion_size: Literal['small', 'medium', 'large'] = Field(
+        ...,
+        description="Typical portion size"
+    )
+    flexibility_minutes: int = Field(default=30, ge=0, le=180, description="How flexible is this meal time (± minutes)")
+    is_non_negotiable: bool = Field(default=False, description="Must eat at this time")
+
+
+class TypicalFoodEntry(BaseModel):
+    """User's typically consumed food."""
+    food_id: str = Field(..., description="UUID of food")
+    meal_time_id: Optional[str] = Field(default=None, description="Optional: which meal this food is associated with")
+    frequency: Literal['daily', 'several_times_week', 'weekly', 'occasionally'] = Field(
+        ...,
+        description="How often they eat this food"
+    )
+    typical_quantity_grams: Optional[float] = Field(default=None, ge=0, description="Typical quantity in grams")
+    typical_serving_id: Optional[str] = Field(default=None, description="UUID of typical serving size")
+
+
+class EventEntry(BaseModel):
+    """User's upcoming event or goal."""
+    event_type_id: Optional[str] = Field(default=None, description="UUID of event type (if applicable)")
+    event_name: str = Field(..., min_length=1, max_length=200, description="Name of the event")
+    event_date: Optional[date] = Field(default=None, description="Date of the event")
+    priority: int = Field(default=3, ge=1, le=5, description="Priority 1-5 (1=low, 5=critical)")
+    specific_goals: List[str] = Field(default_factory=list, description="Specific goals for this event")
+
+
+class ImprovementGoalEntry(BaseModel):
+    """User's improvement goal."""
+    goal_type: Literal[
+        'strength', 'endurance', 'skill', 'aesthetic',
+        'body_composition', 'mobility', 'performance', 'health'
+    ] = Field(..., description="Type of improvement goal")
+    target_description: str = Field(..., min_length=1, max_length=500, description="Description of the goal")
+    current_value: Optional[float] = Field(default=None, description="Current measurement value")
+    target_value: Optional[float] = Field(default=None, description="Target measurement value")
+    target_date: Optional[date] = Field(default=None, description="Target date to achieve goal")
+    exercise_id: Optional[str] = Field(default=None, description="Optional: related exercise UUID")
+
+
+class DifficultyEntry(BaseModel):
+    """User's difficulty or challenge."""
+    difficulty_category: Literal[
+        'motivation', 'time_management', 'injury', 'nutrition',
+        'knowledge', 'consistency', 'energy', 'social_support',
+        'equipment_access', 'travel', 'other'
+    ] = Field(..., description="Category of difficulty")
+    description: str = Field(..., min_length=1, max_length=500, description="Description of the challenge")
+    severity: int = Field(default=3, ge=1, le=5, description="Severity 1-5 (1=minor, 5=major blocker)")
+    frequency: Optional[Literal['daily', 'weekly', 'monthly', 'occasionally']] = Field(
+        default=None,
+        description="How often this difficulty occurs"
+    )
+
+
+class NonNegotiableEntry(BaseModel):
+    """User's non-negotiable constraint."""
+    constraint_type: Literal[
+        'rest_days', 'meal_timing', 'equipment', 'exercises_excluded',
+        'foods_excluded', 'time_blocks', 'social', 'religious', 'medical', 'other'
+    ] = Field(..., description="Type of constraint")
+    description: str = Field(..., min_length=1, max_length=500, description="Description of the constraint")
+    reason: Optional[str] = Field(default=None, max_length=500, description="Why is this non-negotiable")
+    excluded_exercise_ids: List[str] = Field(default_factory=list, description="Exercise UUIDs to exclude")
+    excluded_food_ids: List[str] = Field(default_factory=list, description="Food UUIDs to exclude")
+
+
 class OnboardingData(BaseModel):
     """Complete onboarding data from all 6 steps."""
 
@@ -156,8 +257,9 @@ class OnboardingData(BaseModel):
     )
 
     # Step 2: Physical Stats (ALWAYS IN METRIC - frontend converts if needed)
-    birth_date: Optional[date] = Field(default=None, description="Birth date (YYYY-MM-DD)")
-    age: Optional[int] = Field(default=None, ge=13, le=120)
+    # CRITICAL: birth_date is REQUIRED. age is IGNORED (derived from birth_date server-side)
+    birth_date: date = Field(..., description="Birth date (YYYY-MM-DD) - REQUIRED for accurate age calculation")
+    age: Optional[int] = Field(default=None, ge=13, le=120, description="IGNORED - age is derived from birth_date server-side")
     biological_sex: Literal['male', 'female'] = Field(..., description="Biological sex for BMR calculation")
     height_cm: float = Field(..., ge=100, le=300)
     current_weight_kg: float = Field(..., ge=30, le=300)
@@ -193,6 +295,48 @@ class OnboardingData(BaseModel):
     )
     timezone: str = Field(default="America/New_York")
 
+    # ========================================================================
+    # ENHANCED ONBOARDING - Consultation Data (ALL SKIPPABLE)
+    # ========================================================================
+
+    # Phase 2: Training Background
+    exercise_familiarity: List[ExerciseFamiliarityEntry] = Field(
+        default_factory=list,
+        description="User's familiarity with specific exercises"
+    )
+    training_availability: List[TrainingAvailabilitySlot] = Field(
+        default_factory=list,
+        description="User's training schedule availability"
+    )
+
+    # Phase 3: Nutrition Profile
+    meal_timing_preferences: List[MealTimingPreference] = Field(
+        default_factory=list,
+        description="User's preferred meal times"
+    )
+    typical_foods: List[TypicalFoodEntry] = Field(
+        default_factory=list,
+        description="Foods the user typically eats"
+    )
+
+    # Phase 4: Goals & Context
+    upcoming_events: List[EventEntry] = Field(
+        default_factory=list,
+        description="User's upcoming events and goals"
+    )
+    improvement_goals: List[ImprovementGoalEntry] = Field(
+        default_factory=list,
+        description="User's specific improvement goals"
+    )
+    difficulties: List[DifficultyEntry] = Field(
+        default_factory=list,
+        description="User's challenges and difficulties"
+    )
+    non_negotiables: List[NonNegotiableEntry] = Field(
+        default_factory=list,
+        description="User's non-negotiable constraints"
+    )
+
     @field_validator('secondary_goal')
     @classmethod
     def validate_secondary_goal(cls, v: Optional[str], info) -> Optional[str]:
@@ -215,16 +359,14 @@ class OnboardingData(BaseModel):
 
     @field_validator('birth_date')
     @classmethod
-    def validate_birth_or_age(cls, v: Optional[date], info) -> Optional[date]:
-        bdate = v
-        age = info.data.get('age')
-        if bdate is None and age is None:
-            raise ValueError('Either birth_date or age is required')
-        if bdate is not None:
-            today = date.today()
-            derived = int((today - bdate).days // 365.25)
-            if derived < 13 or derived > 120:
-                raise ValueError('Derived age from birth_date must be between 13 and 120')
+    def validate_birth_date(cls, v: date) -> date:
+        """Validate birth_date produces reasonable age (13-120)."""
+        today = date.today()
+        derived_age = int((today - v).days // 365.25)
+        if derived_age < 13:
+            raise ValueError(f'You must be at least 13 years old to use this app (age: {derived_age})')
+        if derived_age > 120:
+            raise ValueError(f'Please enter a valid birth date (calculated age: {derived_age})')
         return v
 
 
@@ -239,6 +381,86 @@ class OnboardingResponse(BaseModel):
 # ============================================================================
 # ENDPOINTS
 # ============================================================================
+
+@router.get(
+    "/training-modalities/search",
+    status_code=status.HTTP_200_OK,
+    summary="Search training modalities",
+    description="Search training modalities by name (case-insensitive, partial match)",
+)
+async def search_training_modalities(
+    query: str,
+    limit: int = 20,
+    user: dict = Depends(get_current_user)
+) -> list[dict]:
+    """
+    Search training modalities by name.
+
+    Enables users to search for any sport or activity type during onboarding.
+    Case-insensitive partial matching on modality name.
+
+    Args:
+        query: Search query (minimum 2 characters)
+        limit: Maximum results to return (default 20, max 50)
+        user: Current authenticated user (from dependency)
+
+    Returns:
+        List of matching training modalities ordered by display_order
+
+    Raises:
+        HTTPException 400: Query too short
+        HTTPException 500: Database error
+    """
+
+    # Validate query
+    if len(query.strip()) < 2:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Search query must be at least 2 characters"
+        )
+
+    # Clamp limit
+    limit = min(max(limit, 1), 50)
+
+    try:
+        log_event(
+            "training_modality_search",
+            user_id=user['id'],
+            query=query,
+            limit=limit
+        )
+
+        # Search modalities
+        response = supabase_service.supabase.table('training_modalities')\
+            .select('*')\
+            .ilike('name', f'%{query}%')\
+            .order('display_order')\
+            .limit(limit)\
+            .execute()
+
+        log_event(
+            "training_modality_search_success",
+            user_id=user['id'],
+            query=query,
+            results_count=len(response.data)
+        )
+
+        return response.data
+
+    except Exception as e:
+        log_event(
+            "training_modality_search_error",
+            level="error",
+            user_id=user['id'],
+            query=query,
+            error=str(e),
+            error_type=type(e).__name__
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to search training modalities"
+        )
+
 
 @router.post(
     "/complete",
@@ -311,6 +533,17 @@ async def complete_onboarding(
             )
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=ve.errors())
 
+        # CRITICAL: Warn if age was provided (should only send birth_date)
+        if data.age is not None:
+            log_event(
+                "onboarding_age_parameter_sent",
+                level="warning",
+                user_id=user['id'],
+                age_sent=data.age,
+                birth_date=str(data.birth_date),
+                message="Frontend sent age parameter which will be IGNORED. Only birth_date is used."
+            )
+
         # Log incoming payload summary (no sensitive tokens)
         log_event(
             "onboarding_request_received",
@@ -318,7 +551,7 @@ async def complete_onboarding(
             primary_goal=data.primary_goal,
             experience_level=data.experience_level,
             activity_level=data.activity_level,
-            age=data.age,
+            birth_date=str(data.birth_date),
             sex=data.biological_sex,
             height_cm=data.height_cm,
             current_weight_kg=data.current_weight_kg,
@@ -327,6 +560,8 @@ async def complete_onboarding(
             unit_system=data.unit_system,
             timezone=data.timezone,
             content_type=content_type,
+            has_training_modalities=len(data.training_modalities) > 0,
+            has_fitness_notes=bool(data.fitness_notes)
         )
 
         # Extract user JWT for RLS-protected writes

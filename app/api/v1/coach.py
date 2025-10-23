@@ -16,6 +16,9 @@ from app.api.v1.schemas.coach_schemas import (
     MessageResponse,
     ConfirmLogRequest,
     ConfirmLogResponse,
+    ConfirmLogsRequest,
+    ConfirmLogsResponse,
+    LogConfirmationResult,
     CancelLogRequest,
     CancelLogResponse,
     ConversationListResponse,
@@ -323,6 +326,265 @@ async def confirm_log(
         raise HTTPException(
             status_code=500,
             detail=f"Failed to confirm log: {str(e)}"
+        )
+
+
+@router.post("/confirm-logs", response_model=ConfirmLogsResponse)
+async def confirm_logs(
+    request: ConfirmLogsRequest,
+    current_user = Depends(get_current_user),
+    supabase = Depends(get_supabase)
+):
+    """
+    Confirm multiple detected logs in a single batch operation.
+
+    **Use Case:** Multi-logging scenario where user sends one message
+    that generates multiple log previews:
+    - "I ate breakfast and lunch"
+    - "I worked out this morning and went for a run"
+    - "I logged my weight and body fat"
+
+    **Design:**
+    This endpoint processes logs sequentially and tracks results for each.
+    If any log fails, it continues processing others and returns detailed
+    results showing which succeeded and which failed.
+
+    **Future Enhancement (TODO):**
+    Wrap in database transaction for true atomicity - all-or-nothing behavior.
+    Currently uses sequential processing with individual rollback on failure.
+
+    **Why Not Atomic Yet:**
+    Supabase client doesn't expose transaction API directly.
+    Options for future implementation:
+    1. Use Supabase RPC (stored procedure with BEGIN/COMMIT/ROLLBACK)
+    2. Use asyncpg connection pool with transaction context
+    3. Use Supabase Edge Functions with transaction support
+    """
+    try:
+        user_id = current_user["id"]
+
+        logger.info(
+            f"[CoachAPI] 🔄 Batch confirming {len(request.quick_entry_ids)} logs "
+            f"for user {user_id[:8]}..."
+        )
+
+        # ============================================================================
+        # STEP 1: Validate all logs exist and are pending
+        # ============================================================================
+
+        quick_entries = []
+        for qe_id in request.quick_entry_ids:
+            qe_response = supabase.table("quick_entry_logs")\
+                .select("*")\
+                .eq("id", qe_id)\
+                .eq("user_id", user_id)\
+                .single()\
+                .execute()
+
+            if not qe_response.data:
+                # Skip missing logs instead of failing entire batch
+                logger.warning(f"[CoachAPI] ⚠️ Quick entry not found: {qe_id[:8]}...")
+                continue
+
+            qe = qe_response.data
+
+            # Check status
+            if qe["status"] != "pending":
+                logger.warning(
+                    f"[CoachAPI] ⚠️ Log {qe_id[:8]}... already {qe['status']}, skipping"
+                )
+                continue
+
+            quick_entries.append(qe)
+
+        if not quick_entries:
+            raise HTTPException(
+                status_code=404,
+                detail="No valid pending logs found to confirm"
+            )
+
+        logger.info(
+            f"[CoachAPI] ✅ Validated {len(quick_entries)}/{len(request.quick_entry_ids)} logs"
+        )
+
+        # ============================================================================
+        # STEP 2: Process each log
+        # ============================================================================
+
+        results: List[LogConfirmationResult] = []
+
+        for qe in quick_entries:
+            qe_id = qe["id"]
+            log_type = qe["log_type"]
+
+            try:
+                # Apply user edits (if any for this specific log)
+                structured_data = qe["structured_data"]
+                if request.edits and qe_id in request.edits:
+                    structured_data.update(request.edits[qe_id])
+
+                log_id = None
+
+                # ----------------------------------------------------------------
+                # MEAL LOG
+                # ----------------------------------------------------------------
+                if log_type == "meal":
+                    items = structured_data.get("items", [])
+
+                    if not items and structured_data.get("foods"):
+                        # Transform LLM-extracted foods to meal items
+                        logger.info(
+                            f"[CoachAPI] 🔄 Log {qe_id[:8]}...: "
+                            f"Transforming {len(structured_data['foods'])} foods"
+                        )
+
+                        try:
+                            transformer = get_meal_item_transformer()
+                            items, missing_foods = await transformer.transform_foods_to_items(
+                                foods=structured_data["foods"],
+                                user_id=user_id
+                            )
+                            structured_data["items"] = items
+
+                        except Exception as te:
+                            logger.error(
+                                f"[CoachAPI] ❌ Log {qe_id[:8]}... transformation failed: {te}"
+                            )
+                            results.append(LogConfirmationResult(
+                                quick_entry_id=qe_id,
+                                success=False,
+                                error=f"Food transformation failed: {str(te)}"
+                            ))
+                            continue
+
+                    if not items:
+                        results.append(LogConfirmationResult(
+                            quick_entry_id=qe_id,
+                            success=False,
+                            error="No food items found to log"
+                        ))
+                        continue
+
+                    # Create meal
+                    meal = await nutrition_service.create_meal(
+                        user_id=user_id,
+                        name=structured_data.get("name"),
+                        meal_type=structured_data.get("meal_type", "snack"),
+                        logged_at=datetime.fromisoformat(structured_data.get("logged_at")) \
+                            if structured_data.get("logged_at") else datetime.utcnow(),
+                        notes=structured_data.get("notes"),
+                        items=items,
+                        source="coach_chat",
+                        ai_confidence=qe.get("confidence")
+                    )
+                    log_id = str(meal.id)
+
+                # ----------------------------------------------------------------
+                # ACTIVITY LOG
+                # ----------------------------------------------------------------
+                elif log_type == "activity":
+                    activity = await activity_service.create_activity(
+                        user_id=UUID(user_id),
+                        category=structured_data.get("category", "other"),
+                        activity_name=structured_data.get("activity_name", "Activity"),
+                        start_time=datetime.fromisoformat(structured_data.get("start_time")) \
+                            if structured_data.get("start_time") else datetime.utcnow(),
+                        end_time=datetime.fromisoformat(structured_data.get("end_time")) \
+                            if structured_data.get("end_time") else None,
+                        duration_minutes=structured_data.get("duration_minutes"),
+                        calories_burned=structured_data.get("calories_burned", 0),
+                        intensity_mets=structured_data.get("intensity_mets", 3.0),
+                        metrics=structured_data.get("metrics", {}),
+                        notes=structured_data.get("notes")
+                    )
+                    log_id = activity["id"]
+
+                # ----------------------------------------------------------------
+                # MEASUREMENT LOG
+                # ----------------------------------------------------------------
+                elif log_type == "measurement":
+                    metric = await body_metrics_service.create_body_metric(
+                        user_id=UUID(user_id),
+                        recorded_at=datetime.fromisoformat(structured_data.get("recorded_at")) \
+                            if structured_data.get("recorded_at") else datetime.utcnow(),
+                        weight_kg=structured_data.get("weight_kg"),
+                        body_fat_percentage=structured_data.get("body_fat_percentage"),
+                        notes=structured_data.get("notes")
+                    )
+                    log_id = metric["id"]
+
+                # ----------------------------------------------------------------
+                # Update quick entry status
+                # ----------------------------------------------------------------
+                supabase.table("quick_entry_logs")\
+                    .update({
+                        "status": "confirmed",
+                        "confirmed_at": datetime.utcnow().isoformat(),
+                        f"{log_type}_id": log_id,
+                        "structured_data": structured_data
+                    })\
+                    .eq("id", qe_id)\
+                    .execute()
+
+                logger.info(
+                    f"[CoachAPI] ✅ Log {qe_id[:8]}... confirmed: {log_type} → {log_id[:8] if log_id else 'N/A'}..."
+                )
+
+                results.append(LogConfirmationResult(
+                    quick_entry_id=qe_id,
+                    success=True,
+                    log_type=log_type,
+                    log_id=log_id
+                ))
+
+            except Exception as e:
+                # Log error but continue processing other logs
+                logger.error(
+                    f"[CoachAPI] ❌ Log {qe_id[:8]}... failed: {e}",
+                    exc_info=True
+                )
+                results.append(LogConfirmationResult(
+                    quick_entry_id=qe_id,
+                    success=False,
+                    error=str(e)
+                ))
+
+        # ============================================================================
+        # STEP 3: Build response
+        # ============================================================================
+
+        success_count = sum(1 for r in results if r.success)
+        failed_count = len(results) - success_count
+        all_succeeded = failed_count == 0
+
+        if all_succeeded:
+            message = f"All {success_count} logs confirmed successfully! 💪"
+        elif success_count > 0:
+            message = f"{success_count} logs confirmed, {failed_count} failed. Check results for details."
+        else:
+            message = f"All {failed_count} logs failed to confirm. Check results for errors."
+
+        logger.info(
+            f"[CoachAPI] 📊 Batch confirmation complete: "
+            f"{success_count} succeeded, {failed_count} failed"
+        )
+
+        return ConfirmLogsResponse(
+            success=all_succeeded,
+            results=results,
+            total_count=len(results),
+            success_count=success_count,
+            failed_count=failed_count,
+            message=message
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[CoachAPI] ❌ Batch confirmation failed: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Batch confirmation failed: {str(e)}"
         )
 
 

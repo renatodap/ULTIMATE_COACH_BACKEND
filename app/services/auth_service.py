@@ -124,11 +124,19 @@ class AuthService:
                     "http_body": response_text,
                 },
             )
-            # Normalize common Supabase errors to 400s
+            # Return user-friendly error messages
             lower = message.lower()
             if "already" in lower and ("registered" in lower or "exists" in lower or "duplicate" in lower):
-                raise ValueError("User already exists. Please sign in or use a different email.")
-            raise
+                raise ValueError("This email is already registered. Try signing in instead.")
+            if "password" in lower and ("weak" in lower or "short" in lower or "simple" in lower):
+                raise ValueError("Password is too weak. Please use 8+ characters with uppercase, lowercase, numbers, and symbols.")
+            if "email" in lower and ("invalid" in lower or "malformed" in lower):
+                raise ValueError("Please enter a valid email address.")
+            if "rate limit" in lower or "too many" in lower:
+                raise ValueError("Too many signup attempts. Please wait a few minutes and try again.")
+
+            # Generic error (don't expose internal details to user)
+            raise ValueError("Unable to create account. Please try again or contact support.")
 
     async def login(
         self,
@@ -187,14 +195,28 @@ class AuthService:
 
         except Exception as e:
             message = str(e)
-            logger.error(f"Login failed for {email}: {message}")
             lower = message.lower()
-            # Normalize common GoTrue errors
+
+            # Log detailed error for debugging
+            logger.error(
+                "user_login_failed",
+                extra={
+                    "email": email,
+                    "error": message,
+                    "error_type": type(e).__name__
+                }
+            )
+
+            # Return user-friendly error messages
             if "invalid login credentials" in lower or "invalid credentials" in lower:
-                raise ValueError("Invalid email or password")
-            if "email not confirmed" in lower or "email not confirmed" in lower:
-                raise ValueError("Email not confirmed. Please check your email to verify your account.")
-            raise
+                raise ValueError("Invalid email or password. Please try again.")
+            if "email not confirmed" in lower:
+                raise ValueError("Please verify your email before signing in. Check your inbox for the confirmation link.")
+            if "too many requests" in lower or "rate limit" in lower:
+                raise ValueError("Too many login attempts. Please wait a few minutes and try again.")
+
+            # Generic error for anything else (don't expose internal details)
+            raise ValueError("Unable to sign in. Please check your credentials and try again.")
 
     async def get_user_from_token(self, access_token: str) -> Optional[Dict[str, Any]]:
         """

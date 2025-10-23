@@ -90,17 +90,31 @@ async def signup(request: SignupRequest, response: Response) -> AuthResponse:
         return AuthResponse(**result)
 
     except ValueError as e:
-        logger.warning("user_signup_failed", email=request.email, error=str(e))
+        logger.warning(
+            "user_signup_validation_failed",
+            extra={
+                "email": request.email,
+                "error": str(e),
+                "error_type": "ValidationError"
+            }
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         )
     except Exception as e:
-        logger.error("user_signup_error", email=request.email, error=str(e))
-        # Surface underlying error as 400 to avoid opaque 500s during signup issues
+        logger.error(
+            "user_signup_unexpected_error",
+            extra={
+                "email": request.email,
+                "error": str(e),
+                "error_type": type(e).__name__
+            }
+        )
+        # Return user-friendly message (never expose internal errors)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e) or "Failed to create account. Please try again.",
+            detail="Unable to create account. Please try again or contact support.",
         )
 
 
@@ -140,18 +154,32 @@ async def login(request: LoginRequest, response: Response) -> AuthResponse:
         return AuthResponse(**result)
 
     except ValueError as e:
-        logger.warning("user_login_failed", email=request.email, error=str(e))
-        # Propagate specific error (e.g., unconfirmed email) when available
-        message = str(e) or "Invalid email or password"
+        logger.warning(
+            "user_login_validation_failed",
+            extra={
+                "email": request.email,
+                "error": str(e),
+                "error_type": "ValidationError"
+            }
+        )
+        # Return user-friendly error message
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=message,
+            detail=str(e),
         )
     except Exception as e:
-        logger.error("user_login_error", email=request.email, error=str(e))
+        logger.error(
+            "user_login_unexpected_error",
+            extra={
+                "email": request.email,
+                "error": str(e),
+                "error_type": type(e).__name__
+            }
+        )
+        # Return generic user-friendly message
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Login failed. Please try again.",
+            detail="Unable to sign in. Please try again or contact support.",
         )
 
 
