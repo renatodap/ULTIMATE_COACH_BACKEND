@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     GROQ_API_KEY: str | None = None
     OPENROUTER_API_KEY: str | None = None
 
+    # AI Provider Selection (adapter pattern)
+    LLM_PROVIDER: str = "openrouter"  # "openrouter" (default, 95% cheaper) or "anthropic"
+    LLM_MODEL: str | None = None  # Override default model for provider (optional)
+
     # Redis
     REDIS_URL: str = "redis://localhost:6379"
 
