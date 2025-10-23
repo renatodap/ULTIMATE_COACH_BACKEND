@@ -1418,6 +1418,7 @@ class ToolService:
 
                     # Insert custom food into database
                     food_result = self.supabase.table("foods").insert({
+                        "user_id": user_id,  # Required for Row Level Security
                         "name": food_name,
                         "composition_type": "simple",
                         "calories_per_100g": round(per_100g_calories, 1),
@@ -1425,7 +1426,7 @@ class ToolService:
                         "carbs_g_per_100g": round(per_100g_carbs, 1),
                         "fat_g_per_100g": round(per_100g_fat, 1),
                         "is_public": False,  # User's custom food
-                        "is_ai_estimated": True  # Flag for AI-generated (removed is_verified - column doesn't exist)
+                        "is_ai_estimated": True  # Flag for AI-generated
                     }).execute()
 
                     if not food_result.data:
