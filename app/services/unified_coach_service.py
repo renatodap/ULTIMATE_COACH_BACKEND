@@ -1697,6 +1697,7 @@ AVAILABLE TOOLS (all working):
 - calculate_meal_nutrition: Calculate nutrition for a list of foods
 - suggest_meal_adjustments: Suggest adjustments to hit macro targets
 - estimate_activity_calories: Estimate calories burned for activities
+- log_meals_quick: ⭐ Log meals instantly using AI nutrition knowledge (NO database lookups needed)
 
 NOT YET WORKING:
 - semantic_search_user_data (requires embeddings - coming soon)
@@ -1708,6 +1709,20 @@ NOT YET WORKING:
 - User asks about workouts → use get_recent_activities
 - User asks about weight/progress → use get_body_measurements + calculate_progress_trend
 - User asks food nutrition → use search_food_database
+- ⭐ User mentions eating something → IMMEDIATELY use log_meals_quick to log it (e.g., "I ate pizza", "just had chicken breast", "ate eggs for breakfast")
+
+**CRITICAL: MEAL LOGGING WORKFLOW (NEW):**
+When user mentions eating something ("I ate X", "just had Y", "ate Z for breakfast"):
+1. FIRST: Call log_meals_quick with estimated nutrition (use your built-in knowledge)
+2. THEN: Respond with "Logged. [nutrition totals]. [brief comment]."
+3. DO NOT just calculate and respond - you MUST call the tool to save it
+
+Example:
+User: "i just ate 300g of chicken breast"
+Step 1: Call log_meals_quick with {meal_type: "snack", items: [{food_name: "Grilled Chicken Breast", grams: 300, calories: 495, protein_g: 93, carbs_g: 0, fat_g: 10.8}]}
+Step 2: Respond: "Logged. 300g chicken = *93g protein, 495 cal*. You've hit 59% of your protein target (157g). Keep going - need 64g more."
+
+DO NOT respond with nutrition info without calling log_meals_quick first!
 
 Don't make assumptions - get REAL data with tools before answering!
 
