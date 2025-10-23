@@ -184,17 +184,20 @@ def _transform_to_program_bundle(
     
     # Build feasibility report
     feasibility_report = FeasibilityReport(
+        feasible=complete_plan.feasibility_result.feasible,
         status=complete_plan.feasibility_result.status.value,
-        is_feasible=complete_plan.feasibility_result.status.value != "infeasible",
-        constraints_met=[],  # TODO: Extract from feasibility_result
-        trade_offs=[
+        runtime_ms=complete_plan.feasibility_result.runtime_ms,
+        iterations=complete_plan.feasibility_result.iterations,
+        optimal_params=complete_plan.feasibility_result.optimal_params,
+        diagnostics=None,  # TODO: Transform diagnostics if needed
+        trade_off_options=[
             {
                 "description": option.description,
                 "impact": "medium",  # TODO: Add impact to TradeOff
             }
             for option in (complete_plan.feasibility_result.trade_offs or [])
-        ],
-        message=complete_plan.feasibility_result.message,
+        ] if complete_plan.feasibility_result.trade_offs else None,
+        # validated_at uses default (datetime.now())
     )
 
     # Optional: enrich trade-off explanations with AI (cheap, compact)
