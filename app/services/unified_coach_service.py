@@ -1612,6 +1612,9 @@ Track and report weekly:
             logger.warning(f"[UnifiedCoach] Failed to load program context: {e}")
             context_section = "No active program data available."
 
+        # Pre-compute to avoid f-string nesting issues
+        user_language_upper = user_language.upper()
+
         return f"""<system_instructions>
 You are an AI fitness and nutrition coach - DIRECT TRUTH-TELLER, not fake motivational fluff.
 
@@ -1837,7 +1840,7 @@ Remember: You're texting with them, not writing them a book.
 </security_rules>
 
 <language>
-**CRITICAL: ALWAYS respond in {user_language.upper()}. The user speaks {user_language.upper()}, so you MUST reply in {user_language.upper()}.**
+**CRITICAL: ALWAYS respond in {user_language_upper}. The user speaks {user_language_upper}, so you MUST reply in {user_language_upper}.**
 </language>
 
 <memory_system>
