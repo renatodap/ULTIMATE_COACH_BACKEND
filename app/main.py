@@ -390,26 +390,29 @@ async def root():
 # ========================================================================
 
 # Import only essential routers
-from app.api.v1 import health, auth, users, onboarding, foods, coach
+from app.api.v1 import health, auth, users, onboarding, foods, coach, meals
 
 app.include_router(health.router, prefix="/api/v1", tags=["Health"])
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentication"])
 app.include_router(users.router, prefix="/api/v1/users", tags=["Users"])
 app.include_router(onboarding.router, prefix="/api/v1/onboarding", tags=["Onboarding"])
 app.include_router(foods.router, prefix="/api/v1", tags=["Nutrition - Foods"])
+app.include_router(meals.router, prefix="/api/v1", tags=["Nutrition - Meals"])  # Re-enabled for coach tools
 app.include_router(coach.router, prefix="/api/v1", tags=["AI Coach"])
 
 # ========================================================================
-# DISABLED FOR WEEK 1 MVP - Will re-enable in future weeks
+# DISABLED FOR WEEK 1 MVP - Re-enabling incrementally
 # ========================================================================
-# from app.api.v1 import training_modalities, meals, activities, quick_meals
+# ✅ ENABLED: meals (nutrition logging - needed for coach tools)
+# ⏳ PENDING: activities, quick_meals, body_metrics (testing one by one)
+# ========================================================================
+# from app.api.v1 import training_modalities, activities, quick_meals
 # from app.api.v1 import templates, body_metrics, dashboard, exercise_sets
 # from app.api.v1 import wearables, planning, programs, calendar
 # from app.api.v1.planlogs import router as planlogs_router
 #
 # app.include_router(training_modalities.router, prefix="/api/v1/training-modalities", tags=["Training Modalities"])
 # app.include_router(dashboard.router, prefix="/api/v1", tags=["Dashboard"])
-# app.include_router(meals.router, prefix="/api/v1", tags=["Nutrition - Meals"])
 # app.include_router(quick_meals.router, prefix="/api/v1", tags=["Nutrition - Quick Meals"])
 # app.include_router(activities.router, prefix="/api/v1", tags=["Activities"])
 # app.include_router(templates.router, prefix="/api/v1", tags=["Activity Templates"])
