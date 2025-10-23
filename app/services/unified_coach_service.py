@@ -400,26 +400,26 @@ class UnifiedCoachService:
                 iteration += 1
                 logger.info(f"[UnifiedCoach.claude] 🔄 Iteration {iteration}/{max_iterations}")
 
-                response = await self.anthropic.messages.create(
+                # OpenAI SDK format for OpenRouter
+                # Convert system prompt to first message
+                openai_messages = [{"role": "system", "content": system_prompt}] + messages
+
+                response = await self.anthropic.chat.completions.create(
                     model="deepseek/deepseek-chat:exacto",  # 🔥 DeepSeek v3.1 :exacto - precision tool calling
                     max_tokens=1024,
-                    system=system_prompt,
-                    messages=messages,
+                    messages=openai_messages,
                     tools=COACH_TOOLS
                 )
 
-                total_tokens += response.usage.input_tokens + response.usage.output_tokens
+                total_tokens += response.usage.prompt_tokens + response.usage.completion_tokens
                 total_cost += self._calculate_claude_cost(
-                    response.usage.input_tokens,
-                    response.usage.output_tokens
+                    response.usage.prompt_tokens,
+                    response.usage.completion_tokens
                 )
 
-                if response.stop_reason == "end_turn":
-                    # Final response
-                    final_text = ""
-                    for block in response.content:
-                        if block.type == "text":
-                            final_text += block.text
+                if response.choices[0].finish_reason == "stop":
+                    # Final response (OpenAI format)
+                    final_text = response.choices[0].message.content or ""
 
                     # SECURITY: Validate AI output for prompt leakage
                     is_output_safe, output_block_reason = self.security.validate_ai_output(
@@ -483,77 +483,85 @@ class UnifiedCoachService:
                         "complexity": "complex"
                     }
 
-                elif response.stop_reason == "tool_use":
-                    # Execute tools
+                elif response.choices[0].finish_reason == "tool_calls":
+                    # Execute tools (OpenAI format)
                     logger.info("[UnifiedCoach.claude] 🔧 Tool use requested")
 
+                    # Add assistant message with tool calls
                     messages.append({
                         "role": "assistant",
-                        "content": response.content
+                        "content": response.choices[0].message.content,
+                        "tool_calls": [
+                            {
+                                "id": tc.id,
+                                "type": "function",
+                                "function": {
+                                    "name": tc.function.name,
+                                    "arguments": tc.function.arguments
+                                }
+                            }
+                            for tc in response.choices[0].message.tool_calls
+                        ]
                     })
 
-                    tool_results = []
-                    for block in response.content:
-                        if block.type == "tool_use":
-                            tool_name = block.name
-                            tool_input = block.input
-                            tool_id = block.id
+                    # Execute each tool call and append results (OpenAI format)
+                    for tool_call in response.choices[0].message.tool_calls:
+                        import json
+                        tool_name = tool_call.function.name
+                        tool_input = json.loads(tool_call.function.arguments)
+                        tool_id = tool_call.id
 
-                            logger.info(f"[UnifiedCoach.claude] 🛠️ Executing tool: {tool_name}")
+                        logger.info(f"[UnifiedCoach.claude] 🛠️ Executing tool: {tool_name}")
 
-                            try:
-                                # SECURITY: Sanitize tool inputs
-                                is_tool_safe, tool_block_reason, sanitized_input = self.security.sanitize_tool_input(
-                                    tool_name=tool_name,
-                                    tool_input=tool_input
+                        try:
+                            # SECURITY: Sanitize tool inputs
+                            is_tool_safe, tool_block_reason, sanitized_input = self.security.sanitize_tool_input(
+                                tool_name=tool_name,
+                                tool_input=tool_input
+                            )
+
+                            if not is_tool_safe:
+                                logger.warning(
+                                    f"[UnifiedCoach.claude] 🚨 TOOL INPUT BLOCKED\n"
+                                    f"Tool: {tool_name}\n"
+                                    f"Reason: {tool_block_reason}"
                                 )
-
-                                if not is_tool_safe:
-                                    logger.warning(
-                                        f"[UnifiedCoach.claude] 🚨 TOOL INPUT BLOCKED\n"
-                                        f"Tool: {tool_name}\n"
-                                        f"Reason: {tool_block_reason}"
-                                    )
-                                    tool_results.append({
-                                        "type": "tool_result",
-                                        "tool_use_id": tool_id,
-                                        "content": f"Tool input validation failed: {tool_block_reason}",
-                                        "is_error": True
-                                    })
-                                    continue
-
-                                result = await self.tool_service.execute_tool(
-                                    tool_name=tool_name,
-                                    tool_input=sanitized_input,  # Use sanitized input
-                                    user_id=user_id
-                                )
-
-                                tool_results.append({
-                                    "type": "tool_result",
-                                    "tool_use_id": tool_id,
-                                    "content": str(result)
+                                # OpenAI format: individual tool message with error
+                                messages.append({
+                                    "role": "tool",
+                                    "tool_call_id": tool_id,
+                                    "content": f"Tool input validation failed: {tool_block_reason}"
                                 })
+                                continue
 
-                                tools_used.append(tool_name)
+                            result = await self.tool_service.execute_tool(
+                                tool_name=tool_name,
+                                tool_input=sanitized_input,  # Use sanitized input
+                                user_id=user_id
+                            )
 
-                            except Exception as tool_err:
-                                logger.error(f"[UnifiedCoach.claude] ❌ Tool failed: {tool_err}")
-                                tool_results.append({
-                                    "type": "tool_result",
-                                    "tool_use_id": tool_id,
-                                    "content": f"Error: {str(tool_err)}",
-                                    "is_error": True
-                                })
+                            # OpenAI format: individual tool message
+                            messages.append({
+                                "role": "tool",
+                                "tool_call_id": tool_id,
+                                "content": str(result)
+                            })
 
-                    messages.append({
-                        "role": "user",
-                        "content": tool_results
-                    })
+                            tools_used.append(tool_name)
+
+                        except Exception as tool_err:
+                            logger.error(f"[UnifiedCoach.claude] ❌ Tool failed: {tool_err}")
+                            # OpenAI format: individual tool message with error
+                            messages.append({
+                                "role": "tool",
+                                "tool_call_id": tool_id,
+                                "content": f"Error: {str(tool_err)}"
+                            })
 
                     continue
 
                 else:
-                    logger.warning(f"[UnifiedCoach.claude] ⚠️ Unexpected stop_reason: {response.stop_reason}")
+                    logger.warning(f"[UnifiedCoach.claude] ⚠️ Unexpected finish_reason: {response.choices[0].finish_reason}")
                     break
 
             # Max iterations reached
@@ -2442,18 +2450,18 @@ def get_unified_coach_service(
                 )
 
             try:
-                from anthropic import AsyncAnthropic
-                # OpenRouter supports Anthropic API format
-                # NOTE: Anthropic SDK adds /v1/messages automatically, so base_url should NOT include /v1
-                anthropic_client = AsyncAnthropic(
+                from openai import AsyncOpenAI
+                # OpenRouter uses OpenAI SDK format, NOT Anthropic SDK
+                # DeepSeek v3.1 :exacto via OpenRouter for 95% cost savings
+                anthropic_client = AsyncOpenAI(
                     api_key=api_key,
-                    base_url="https://openrouter.ai/api"
+                    base_url="https://openrouter.ai/api/v1"
                 )
-                logger.info("🚀 OpenRouter client initialized with DeepSeek :exacto")
+                logger.info("🚀 OpenRouter client initialized with DeepSeek :exacto (OpenAI SDK)")
             except ImportError as e:
                 raise ImportError(
-                    f"Anthropic SDK is not installed: {e}. "
-                    "Run: pip install anthropic"
+                    f"OpenAI SDK is not installed: {e}. "
+                    "Run: pip install openai"
                 )
             except Exception as e:
                 raise RuntimeError(f"Failed to initialize OpenRouter client: {e}")
