@@ -304,6 +304,28 @@ class UnifiedCoachService:
         try:
             from app.services.tool_service import COACH_TOOLS
 
+            # Convert Anthropic tools format to OpenAI format for OpenRouter
+            def convert_tools_to_openai_format(anthropic_tools):
+                """Convert Anthropic tool format to OpenAI tool format.
+
+                Anthropic: {"name": "...", "description": "...", "input_schema": {...}}
+                OpenAI: {"type": "function", "function": {"name": "...", "description": "...", "parameters": {...}}}
+                """
+                openai_tools = []
+                for tool in anthropic_tools:
+                    openai_tools.append({
+                        "type": "function",
+                        "function": {
+                            "name": tool["name"],
+                            "description": tool["description"],
+                            "parameters": tool["input_schema"]
+                        }
+                    })
+                return openai_tools
+
+            # Convert tools once for this request
+            openai_tools = convert_tools_to_openai_format(COACH_TOOLS)
+
             # DETECT: Is this likely a slow operation? (for UX feedback)
             is_slow_operation = self._detect_slow_operation(message)
 
@@ -408,7 +430,7 @@ class UnifiedCoachService:
                     model="deepseek/deepseek-v3.1-terminus:exacto",  # 🔥 DeepSeek v3 via OpenRouter - 95% cost savings
                     max_tokens=1024,
                     messages=openai_messages,
-                    tools=COACH_TOOLS
+                    tools=openai_tools  # OpenAI format tools
                 )
 
                 total_tokens += response.usage.prompt_tokens + response.usage.completion_tokens
