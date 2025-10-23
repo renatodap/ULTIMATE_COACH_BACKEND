@@ -300,7 +300,13 @@ You respond: "Logged. 300g chicken = 93g protein, 495 cal."
     },
     {
         "name": "log_meals_quick",
-        "description": """Log one or more meals using your built-in nutrition knowledge (NO DATABASE LOOKUPS).
+        "description": """⚠️ SAVES MEAL TO DATABASE - REQUIRED WHEN USER MENTIONS EATING ⚠️
+
+Log one or more meals using your built-in nutrition knowledge (NO DATABASE LOOKUPS).
+
+🚨 WARNING: If you don't call this tool, the user's meal is LOST FOREVER!
+🚨 Calculating nutrition in your response ≠ saving it to the database!
+🚨 You MUST call this tool when user says "I ate X" or "just had Y"
 
 CRITICAL: Use your encyclopedic nutrition knowledge to estimate everything:
 - Whole mozzarella pizza (12"): ~800g, 2000 cal, 80g protein, 200g carbs, 80g fat
