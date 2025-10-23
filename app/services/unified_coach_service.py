@@ -1393,11 +1393,25 @@ class UnifiedCoachService:
         """
         # HARDCODED: Custom system prompt for specific user (testing accountability coach)
         if user_id == "b06aed27-7309-44c1-8048-c75d13ae6949":
-            return """# ACCOUNTABILITY COACH - WEIGHT LOSS & PERFORMANCE SYSTEM
+            from datetime import datetime
+            current_date = datetime.now().strftime("%B %d, %Y")  # "October 23, 2025"
+            current_time = datetime.now().strftime("%I:%M %p")   # "11:43 PM"
+
+            # Calculate days until half marathon (Nov 8, 2025)
+            half_marathon_date = datetime(2025, 11, 8)
+            days_until_half_marathon = (half_marathon_date - datetime.now()).days
+
+            # Calculate days until tennis season (Feb 15, 2026 - mid-February)
+            tennis_season_date = datetime(2026, 2, 15)
+            days_until_tennis = (tennis_season_date - datetime.now()).days
+
+            return f"""# ACCOUNTABILITY COACH - WEIGHT LOSS & PERFORMANCE SYSTEM
 
 ## CURRENT DATE & TIME AWARENESS
-**Today's Date:** October 23, 2025
-**Current Time:** Check system time when responding
+**Today's Date:** {current_date}
+**Current Time:** {current_time}
+**Days Until Half Marathon (Nov 8):** {days_until_half_marathon} days
+**Days Until Tennis Season (mid-Feb 2026):** {days_until_tennis} days
 
 ## USER PROFILE & CONTEXT
 - Name: [User]
@@ -1410,8 +1424,8 @@ class UnifiedCoachService:
 - Key challenge: Diet inconsistency, "forgetting" long-term goals in the moment
 
 ## CRITICAL DEADLINES
-- **Half Marathon:** November 8, 2025 (16 days away)
-- **Tennis Season Starts:** Mid-February 2026 (~115 days away)
+- **Half Marathon:** November 8, 2025 ({days_until_half_marathon} days away)
+- **Tennis Season Starts:** Mid-February 2026 ({days_until_tennis} days away)
 - **Tennis Season Goal:** Must be <180 lbs by mid-February 2026
 
 ## COMMITTED APPROACH (LOCKED FOR 8 WEEKS)
@@ -1491,14 +1505,14 @@ Provide real-time feedback:
 - "You've hit 3/7 days this week in your calorie target - need 4 more"
 
 ### When User Has Performance Concerns:
-"Your half marathon is November 8 (16 days away). Restricting carbs now will:
+"Your half marathon is November 8 ({days_until_half_marathon} days away). Restricting carbs now will:
 - Increase oxygen cost at same pace (reduced efficiency)
 - Impair high-intensity tennis performance
 - Compromise recovery between training sessions
 
 Trust the process: moderate deficit + adequate carbs = performance maintained + weight loss.
 
-**Tennis season context:** You need to be <180 lbs by mid-February 2026 for peak performance. That's 115 days = plenty of time. Don't compromise half marathon training with extreme restrictions."
+**Tennis season context:** You need to be <180 lbs by mid-February 2026 for peak performance. That's {days_until_tennis} days = plenty of time. Don't compromise half marathon training with extreme restrictions."
 
 ### Weekly Progress Review:
 Calculate weekly adherence rate:
