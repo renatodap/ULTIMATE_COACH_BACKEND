@@ -1,7 +1,7 @@
 """
 Tool Service - Agentic Tool Calling for AI Coach
 
-Provides 12 tools for on-demand data fetching:
+Provides 13 tools for on-demand data fetching and actions:
 1. get_user_profile - Get user goals, macros, restrictions
 2. get_daily_nutrition_summary - Get today's totals
 3. get_recent_meals - Get meal history
@@ -14,6 +14,7 @@ Provides 12 tools for on-demand data fetching:
 10. calculate_meal_nutrition - Nutrition calc
 11. suggest_meal_adjustments - Macro optimization
 12. estimate_activity_calories - Calorie estimation
+13. log_meal - Log meal from conversation (NEW - Week 2.5)
 
 This is 80% cheaper than full RAG - only fetches what's needed!
 
@@ -22,6 +23,12 @@ Week 2 Optimization: Intelligent Caching
 - Daily summaries cached (1min TTL)
 - Food searches cached (30min TTL)
 - Reduces database load and improves response time
+
+Week 2.5: Chat-Based Logging (Pulled from Week 5)
+- log_meal tool enables conversational meal logging
+- Respects full database schema (meals + meal_items tables)
+- Sets source="coach_chat" for tracking
+- Validates all constraints before database insertion
 """
 
 import structlog
@@ -287,6 +294,79 @@ You respond: "Logged. 300g chicken = 93g protein, 495 cal."
             },
             "required": ["activity_type", "duration_minutes"]
         }
+    },
+    {
+        "name": "log_meal",
+        "description": """Log a meal to the database from conversation. Use when user says they ate something.
+
+CRITICAL - NUTRITION CALCULATION RULES:
+1. Search food database FIRST to get per_100g nutrition
+2. Calculate based on grams: calories = (per_100g_calories * grams) / 100
+3. Round: calories to INTEGER, macros to 1 DECIMAL PLACE
+4. ALWAYS verify calculation before logging
+
+MEAL TYPE INFERENCE:
+- If user mentions time: "breakfast" → breakfast, "lunch" → lunch, "dinner" → dinner
+- If ambiguous: Use "snack" as default
+- Valid types: breakfast, lunch, dinner, snack, other
+
+GRAMS ESTIMATION (if not specified):
+- Chicken breast: ~100-200g serving
+- Rice (cooked): ~150-200g serving
+- Banana: ~120g medium
+- Protein scoop: ~30g
+- ASK if uncertain about quantity
+
+WORKFLOW:
+1. Search food database (use search_food_database tool)
+2. Estimate grams if not provided by user
+3. Calculate nutrition: (per_100g × grams) / 100
+4. Round properly (int for cal, 1 decimal for macros)
+5. Log meal with source="coach_chat"
+6. Confirm to user with totals""",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "food_id": {
+                    "type": "string",
+                    "description": "UUID of food from search_food_database"
+                },
+                "food_name": {
+                    "type": "string",
+                    "description": "Name of food for confirmation"
+                },
+                "grams": {
+                    "type": "number",
+                    "description": "Total grams being logged"
+                },
+                "calories": {
+                    "type": "integer",
+                    "description": "Calculated calories (MUST be integer)"
+                },
+                "protein_g": {
+                    "type": "number",
+                    "description": "Calculated protein in grams (1 decimal)"
+                },
+                "carbs_g": {
+                    "type": "number",
+                    "description": "Calculated carbs in grams (1 decimal)"
+                },
+                "fat_g": {
+                    "type": "number",
+                    "description": "Calculated fat in grams (1 decimal)"
+                },
+                "meal_type": {
+                    "type": "string",
+                    "description": "Meal type",
+                    "enum": ["breakfast", "lunch", "dinner", "snack", "other"]
+                },
+                "notes": {
+                    "type": "string",
+                    "description": "Optional notes (e.g., 'grilled', 'with sauce')"
+                }
+            },
+            "required": ["food_id", "food_name", "grams", "calories", "protein_g", "carbs_g", "fat_g", "meal_type"]
+        }
     }
 ]
 
@@ -354,6 +434,8 @@ class ToolService:
             return await self._suggest_meal_adjustments(user_id, tool_input)
         elif tool_name == "estimate_activity_calories":
             return await self._estimate_activity_calories(user_id, tool_input)
+        elif tool_name == "log_meal":
+            return await self._log_meal(user_id, tool_input)
         else:
             raise ValueError(f"Unknown tool: {tool_name}")
 
@@ -1197,6 +1279,115 @@ class ToolService:
         except Exception as e:
             logger.error(f"[ToolService] estimate_activity_calories failed: {e}")
             return {"error": str(e)}
+
+    async def _log_meal(self, user_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Log a meal to the database (chat-based logging).
+
+        SCHEMA COMPLIANCE:
+        - Respects meals table constraints (meal_type, source)
+        - Respects meal_items table constraints (grams > 0, calories >= 0, etc.)
+        - Uses nutrition_service.create_meal() for proper validation
+        - Sets source="coach_chat" to track AI-logged meals
+        """
+        try:
+            from decimal import Decimal
+            from datetime import datetime
+
+            # Extract and validate parameters
+            food_id = params["food_id"]
+            food_name = params["food_name"]
+            grams = Decimal(str(params["grams"]))
+            calories = int(params["calories"])  # Must be integer
+            protein_g = round(Decimal(str(params["protein_g"])), 1)  # 1 decimal
+            carbs_g = round(Decimal(str(params["carbs_g"])), 1)  # 1 decimal
+            fat_g = round(Decimal(str(params["fat_g"])), 1)  # 1 decimal
+            meal_type = params["meal_type"]  # breakfast/lunch/dinner/snack/other
+            notes = params.get("notes", None)
+
+            # Validate meal_type (must match DB constraint)
+            valid_meal_types = ["breakfast", "lunch", "dinner", "snack", "other"]
+            if meal_type not in valid_meal_types:
+                return {
+                    "success": False,
+                    "error": f"Invalid meal_type '{meal_type}'. Must be one of: {valid_meal_types}"
+                }
+
+            # Validate nutrition values (must match DB constraints)
+            if grams <= 0:
+                return {"success": False, "error": "Grams must be > 0"}
+            if calories < 0 or protein_g < 0 or carbs_g < 0 or fat_g < 0:
+                return {"success": False, "error": "Nutrition values must be >= 0"}
+
+            # Create meal item following MealItemBase schema
+            meal_item = {
+                "food_id": food_id,
+                "quantity": 1,  # Single food item
+                "serving_id": None,  # Logging by grams (not by serving)
+                "grams": grams,
+                "calories": calories,
+                "protein_g": protein_g,
+                "carbs_g": carbs_g,
+                "fat_g": fat_g,
+                "display_unit": "g",  # Displaying in grams
+                "display_label": None,
+                "display_order": 0
+            }
+
+            # Import nutrition service
+            from app.services.nutrition_service import nutrition_service
+
+            # Create meal via nutrition service (respects all DB constraints)
+            meal = await nutrition_service.create_meal(
+                user_id=user_id,
+                name=food_name,  # Use food name as meal name
+                meal_type=meal_type,
+                logged_at=datetime.utcnow(),  # Log at current time
+                notes=notes,
+                items=[meal_item],  # Single item
+                source="coach_chat",  # Track that coach logged this
+                ai_confidence=None  # No AI confidence for direct logging
+            )
+
+            logger.info(
+                "[ToolService.log_meal] ✅ Meal logged via chat",
+                meal_id=str(meal.id),
+                food_name=food_name,
+                grams=float(grams),
+                calories=calories,
+                meal_type=meal_type,
+                user_id=user_id
+            )
+
+            # Return success with meal details
+            return {
+                "success": True,
+                "meal_id": str(meal.id),
+                "food_name": food_name,
+                "grams": float(grams),
+                "calories": calories,
+                "protein_g": float(protein_g),
+                "carbs_g": float(carbs_g),
+                "fat_g": float(fat_g),
+                "meal_type": meal_type,
+                "logged_at": meal.logged_at.isoformat(),
+                "message": f"Logged: {food_name} ({grams}g) = {calories} cal, {protein_g}g protein"
+            }
+
+        except ValueError as e:
+            # Validation errors from nutrition service
+            logger.warning(f"[ToolService.log_meal] Validation error: {e}")
+            return {
+                "success": False,
+                "error": f"Validation failed: {str(e)}"
+            }
+        except Exception as e:
+            # Unexpected errors
+            logger.error(f"[ToolService.log_meal] ❌ Failed: {e}", exc_info=True)
+            return {
+                "success": False,
+                "error": f"Failed to log meal: {str(e)}"
+            }
 
 
 # Singleton
