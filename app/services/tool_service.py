@@ -1424,8 +1424,7 @@ class ToolService:
                         "carbs_g_per_100g": round(per_100g_carbs, 1),
                         "fat_g_per_100g": round(per_100g_fat, 1),
                         "is_public": False,  # User's custom food
-                        "is_ai_estimated": True,  # Flag for AI-generated
-                        "is_verified": False
+                        "is_ai_estimated": True  # Flag for AI-generated (removed is_verified - column doesn't exist)
                     }).execute()
 
                     if not food_result.data:
