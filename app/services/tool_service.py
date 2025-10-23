@@ -38,6 +38,7 @@ import structlog
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
 from app.services.cache_service import get_cache_service
+from app.models.nutrition import MealItemBase
 
 logger = structlog.get_logger()
 
@@ -1432,20 +1433,20 @@ class ToolService:
 
                     custom_food_id = food_result.data[0]["id"]
 
-                    # Create meal item data
-                    meal_items.append({
-                        "food_id": custom_food_id,
-                        "quantity": 1,  # Always 1 (grams are the actual amount)
-                        "serving_id": None,  # Logging by grams
-                        "grams": grams,
-                        "calories": calories,
-                        "protein_g": protein_g,
-                        "carbs_g": carbs_g,
-                        "fat_g": fat_g,
-                        "display_unit": "g",
-                        "display_label": None,
-                        "display_order": idx
-                    })
+                    # Create meal item data (convert to Pydantic model)
+                    meal_items.append(MealItemBase(
+                        food_id=custom_food_id,
+                        quantity=1,  # Always 1 (grams are the actual amount)
+                        serving_id=None,  # Logging by grams
+                        grams=grams,
+                        calories=calories,
+                        protein_g=protein_g,
+                        carbs_g=carbs_g,
+                        fat_g=fat_g,
+                        display_unit="g",
+                        display_label=None,
+                        display_order=idx
+                    ))
 
                 # Create meal with all items
                 meal = await nutrition_service.create_meal(
