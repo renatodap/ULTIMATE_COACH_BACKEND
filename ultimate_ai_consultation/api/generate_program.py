@@ -25,6 +25,8 @@ from ultimate_ai_consultation.api.schemas.outputs import (
     NutritionPlan,
     SafetyReport,
     FeasibilityReport,
+    TDEEResult,
+    MacroTargets,
     MultimodalSession,
     MultimodalInterval,
     MultimodalDrill,
@@ -217,28 +219,24 @@ def _transform_to_program_bundle(
         # Never let AI enrichment break program generation
         pass
     
-    # Create program version
-    version = ProgramVersion(
-        schema_version="1.0.0",
-        generator_version="phase_1",
-        api_version="1.0.0",
-    )
-    
-    # Create provenance
-    provenance = Provenance(
-        consultation_session_id=consultation.session_id,
-        consultation_completed_at=consultation.completed_at,
-        generated_at=complete_plan.created_at,
-        generated_by="phase_1_generator",
-        generator_config={
+    # Create program version as string (schema expects string, not ProgramVersion object)
+    version_str = "1.0.0"
+
+    # Create provenance as dict (schema expects dict, not Provenance object)
+    provenance_dict = {
+        "consultation_session_id": consultation.session_id,
+        "consultation_completed_at": consultation.completed_at,
+        "generated_at": complete_plan.created_at,
+        "generated_by": "phase_1_generator",
+        "generator_config": {
             "tdee_method": "ensemble",
             "macro_method": "goal_based",
             "training_method": "volume_landmarks",
             "meal_method": "macro_matching",
         },
-        input_hash=None,  # TODO: Implement hash of consultation data
-        warnings=warnings,
-    )
+        "input_hash": None,  # TODO: Implement hash of consultation data
+        "warnings": warnings,
+    }
     
     # Build multimodal sessions (optional)
     multimodal_sessions_out = None
@@ -281,26 +279,51 @@ def _transform_to_program_bundle(
                 )
             )
 
+    # Create TDEEResult from internal tdee_result dataclass
+    tdee_result_out = TDEEResult(
+        tdee_mean=complete_plan.tdee_result.tdee_mean,
+        tdee_ci_lower=complete_plan.tdee_result.tdee_ci_lower,
+        tdee_ci_upper=complete_plan.tdee_result.tdee_ci_upper,
+        confidence=complete_plan.tdee_result.confidence,
+        equations_used=complete_plan.tdee_result.source_equations,
+        activity_factor=complete_plan.tdee_result.activity_factor,
+        notes=complete_plan.tdee_result.notes,
+    )
+
+    # Create MacroTargets with required fields
+    # Calculate protein per kg body weight
+    user_weight_kg = getattr(consultation.biometrics, 'weight_kg', 80.0)  # Fallback to 80kg if not available
+    protein_g_per_kg = round(complete_plan.macro_targets.protein_g / user_weight_kg, 2)
+
+    macro_targets_out = MacroTargets(
+        calories=complete_plan.macro_targets.calories,
+        protein_g=complete_plan.macro_targets.protein_g,
+        carbs_g=complete_plan.macro_targets.carbs_g,
+        fat_g=complete_plan.macro_targets.fat_g,
+        protein_g_per_kg=protein_g_per_kg,
+        rationale=[
+            f"{complete_plan.goal.value.replace('_', ' ').title()} goal requires specific macro distribution",
+            f"Protein: {protein_g_per_kg}g/kg body weight for muscle support",
+            f"Total calories: {complete_plan.macro_targets.calories} kcal/day",
+        ],
+    )
+
     # Build complete program bundle
     program_bundle = ProgramBundle(
         program_id=complete_plan.plan_id,
         user_id=complete_plan.user_id,
-        version=version,
-        provenance=provenance,
+        version=version_str,  # Now a string
+        provenance=provenance_dict,  # Now a dict
         created_at=complete_plan.created_at,
         valid_until=complete_plan.next_reassessment_date,
         primary_goal=complete_plan.goal.value,
-        timeline_weeks=12,  # TODO: Extract from options or UserProfile
+        program_duration_weeks=12,  # TODO: Extract from options or UserProfile
         training_plan=training_plan,
         nutrition_plan=nutrition_plan,
         tdee_kcal=complete_plan.tdee_result.tdee_mean,
         target_calories_kcal=complete_plan.daily_calorie_target,
-        macro_targets={
-            "protein_g": complete_plan.macro_targets.protein_g,
-            "carbs_g": complete_plan.macro_targets.carbs_g,
-            "fat_g": complete_plan.macro_targets.fat_g,
-            "calories": complete_plan.macro_targets.calories,
-        },
+        tdee_result=tdee_result_out,  # Added required field
+        macro_targets=macro_targets_out,  # Now MacroTargets pydantic with all required fields
         expected_rate_of_change_kg_per_week=complete_plan.rate_of_change_kg_per_week,
         safety_report=safety_report,
         feasibility_report=feasibility_report,
