@@ -48,7 +48,8 @@ class UnifiedCoachService:
     def __init__(
         self,
         supabase_client,
-        anthropic_client
+        anthropic_client,
+        llm_adapter=None
     ):
         # Core services
         self.supabase = supabase_client
@@ -67,10 +68,13 @@ class UnifiedCoachService:
         self.tool_service = get_tool_service(supabase_client)
         self.security = get_security_service(self.cache)
 
-        # AI client
-        self.anthropic = anthropic_client  # AsyncAnthropic client for Claude chat
+        # AI client (backward compatible - works with both SDK types)
+        self.anthropic = anthropic_client  # AsyncAnthropic or AsyncOpenAI client
 
-        logger.info("unified_coach_initialized")
+        # LLM Adapter (new - for flexible provider selection)
+        self.llm_adapter = llm_adapter  # LLMAdapter instance (OpenRouter or Anthropic)
+
+        logger.info("unified_coach_initialized", has_adapter=llm_adapter is not None)
 
     async def process_message(
         self,
@@ -2451,9 +2455,14 @@ _unified_coach: Optional[UnifiedCoachService] = None
 
 def get_unified_coach_service(
     supabase_client=None,
-    anthropic_client=None
+    anthropic_client=None,
+    llm_adapter=None
 ) -> UnifiedCoachService:
-    """Get singleton UnifiedCoachService instance."""
+    """
+    Get singleton UnifiedCoachService instance.
+
+    Uses adapter pattern for LLM provider flexibility.
+    """
     global _unified_coach
     if _unified_coach is None:
         if supabase_client is None:
@@ -2461,39 +2470,62 @@ def get_unified_coach_service(
             supabase_client = get_service_client()
 
         if anthropic_client is None:
-            import os
+            # 🔥 ADAPTER PATTERN: Flexible LLM provider selection
+            from app.config import settings
+            from app.services.llm_adapter import create_llm_adapter
 
-            # 🔥 OPENROUTER + DEEPSEEK :EXACTO - 94% COST REDUCTION 🔥
-            api_key = os.getenv("OPENROUTER_API_KEY")
-            if not api_key:
+            provider = settings.LLM_PROVIDER.lower()
+            logger.info(f"🎯 Initializing LLM provider: {provider}")
+
+            if provider == "openrouter":
+                # OpenRouter (DeepSeek :exacto) - 95% cost reduction
+                if not settings.OPENROUTER_API_KEY:
+                    raise ValueError(
+                        "OPENROUTER_API_KEY not set. Add it to Railway env vars."
+                    )
+
+                llm_adapter = create_llm_adapter(
+                    "openrouter",
+                    api_key=settings.OPENROUTER_API_KEY,
+                    model=settings.LLM_MODEL or "deepseek/deepseek-v3.1-terminus:exacto"
+                )
+                anthropic_client = llm_adapter.client
+                logger.info(
+                    "llm_provider_initialized",
+                    provider="openrouter",
+                    model=llm_adapter.get_model_name(),
+                    cost_savings="95% vs Claude"
+                )
+
+            elif provider == "anthropic":
+                # Anthropic Claude 3.5 Sonnet - Premium option
+                if not settings.ANTHROPIC_API_KEY:
+                    raise ValueError(
+                        "ANTHROPIC_API_KEY not set. Add it to Railway env vars."
+                    )
+
+                llm_adapter = create_llm_adapter(
+                    "anthropic",
+                    api_key=settings.ANTHROPIC_API_KEY,
+                    model=settings.LLM_MODEL or "claude-3-5-sonnet-20241022"
+                )
+                anthropic_client = llm_adapter.client
+                logger.info(
+                    "llm_provider_initialized",
+                    provider="anthropic",
+                    model=llm_adapter.get_model_name()
+                )
+
+            else:
                 raise ValueError(
-                    "OPENROUTER_API_KEY environment variable is not set. "
-                    "Please add it to your Railway environment variables."
+                    f"Unknown LLM_PROVIDER: {provider}. "
+                    f"Must be 'openrouter' or 'anthropic'. "
+                    f"Set LLM_PROVIDER env var in Railway."
                 )
-
-            try:
-                from openai import AsyncOpenAI
-                # OpenRouter uses OpenAI SDK format, NOT Anthropic SDK
-                # DeepSeek v3.1 :exacto via OpenRouter for 95% cost savings
-                anthropic_client = AsyncOpenAI(
-                    api_key=api_key,
-                    base_url="https://openrouter.ai/api/v1",
-                    default_headers={
-                        "HTTP-Referer": "https://sharpened.app",  # Site URL for OpenRouter tracking
-                        "X-Title": "SHARPENED Ultimate Coach"     # App name for OpenRouter dashboard
-                    }
-                )
-                logger.info("🚀 OpenRouter client initialized with DeepSeek :exacto (OpenAI SDK)")
-            except ImportError as e:
-                raise ImportError(
-                    f"OpenAI SDK is not installed: {e}. "
-                    "Run: pip install openai"
-                )
-            except Exception as e:
-                raise RuntimeError(f"Failed to initialize OpenRouter client: {e}")
 
         _unified_coach = UnifiedCoachService(
             supabase_client,
-            anthropic_client
+            anthropic_client,
+            llm_adapter
         )
     return _unified_coach
