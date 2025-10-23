@@ -1334,11 +1334,24 @@ class ToolService:
             from datetime import datetime
             from app.services.nutrition_service import nutrition_service
 
+            # Validate params structure
+            if "meals" not in params:
+                return {"success": False, "error": "Missing 'meals' parameter"}
+
             meals_data = params["meals"]
+            if not isinstance(meals_data, list) or len(meals_data) == 0:
+                return {"success": False, "error": "'meals' must be a non-empty array"}
+
             logged_meals = []
 
             # Process each meal
             for meal_data in meals_data:
+                # Validate required fields
+                if "meal_type" not in meal_data:
+                    return {"success": False, "error": "Missing 'meal_type' in meal data"}
+                if "items" not in meal_data:
+                    return {"success": False, "error": "Missing 'items' in meal data"}
+
                 meal_type = meal_data["meal_type"]
                 items_data = meal_data["items"]
                 notes = meal_data.get("notes")
@@ -1361,9 +1374,22 @@ class ToolService:
                         "error": f"Invalid meal_type '{meal_type}'. Must be one of: {valid_meal_types}"
                     }
 
+                # Validate items array
+                if not isinstance(items_data, list) or len(items_data) == 0:
+                    return {"success": False, "error": f"'{meal_type}' meal must have at least one food item"}
+
                 # Process each food item in this meal
                 meal_items = []
                 for idx, item in enumerate(items_data):
+                    # Validate required fields in item
+                    required_fields = ["food_name", "grams", "calories", "protein_g", "carbs_g", "fat_g"]
+                    missing_fields = [f for f in required_fields if f not in item]
+                    if missing_fields:
+                        return {
+                            "success": False,
+                            "error": f"Missing fields in item {idx+1}: {', '.join(missing_fields)}"
+                        }
+
                     food_name = item["food_name"]
                     grams = Decimal(str(item["grams"]))
                     calories = int(item["calories"])
