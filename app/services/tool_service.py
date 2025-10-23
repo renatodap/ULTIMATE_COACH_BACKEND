@@ -1450,8 +1450,9 @@ class ToolService:
                     ))
 
                 # Create meal with all items
+                from uuid import UUID
                 meal = await nutrition_service.create_meal(
-                    user_id=user_id,
+                    user_id=UUID(user_id),  # Convert str to UUID for type safety
                     name=None,  # Let service auto-generate name from items
                     meal_type=meal_type,
                     logged_at=logged_at_dt,
