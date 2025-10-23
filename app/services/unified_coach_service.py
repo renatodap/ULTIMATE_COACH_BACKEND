@@ -470,7 +470,7 @@ class UnifiedCoachService:
                         user_id=user_id,
                         conversation_id=conversation_id,
                         content=final_text,
-                        ai_provider='openrouter',
+                        ai_provider='openai',  # OpenRouter uses OpenAI SDK format
                         ai_model='deepseek/deepseek-v3.1-terminus:exacto',
                         tokens_used=total_tokens,
                         cost_usd=total_cost,
@@ -595,7 +595,7 @@ class UnifiedCoachService:
                 user_id=user_id,
                 conversation_id=conversation_id,
                 content=final_text,
-                ai_provider='openrouter',
+                ai_provider='openai',  # OpenRouter uses OpenAI SDK format
                 ai_model='deepseek/deepseek-v3.1-terminus:exacto',
                 tokens_used=total_tokens,
                 cost_usd=total_cost,
