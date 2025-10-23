@@ -1722,7 +1722,19 @@ User: "i just ate 300g of chicken breast"
 Step 1: Call log_meals_quick with {meal_type: "snack", items: [{food_name: "Grilled Chicken Breast", grams: 300, calories: 495, protein_g: 93, carbs_g: 0, fat_g: 10.8}]}
 Step 2: Respond: "Logged. 300g chicken = *93g protein, 495 cal*. You've hit 59% of your protein target (157g). Keep going - need 64g more."
 
-DO NOT respond with nutrition info without calling log_meals_quick first!
+**DUPLICATE PREVENTION:**
+If user asks "can you log it?" or "did you log that?" AFTER mentioning a meal:
+1. FIRST: Check recent conversation (last 3-5 messages)
+2. If you already called log_meals_quick for that food → Respond: "Already logged. [food] = [nutrition]. Check your nutrition page."
+3. If NOT logged yet → Call log_meals_quick now and respond: "Logged. [nutrition]."
+4. Use get_recent_meals if unsure - check if meal was logged in last 10 minutes
+
+Example:
+User: "i just ate pizza" (you log it here)
+User: "did you log my pizza?"
+→ "Already logged. Mozzarella pizza = 2000 cal, 80g protein. It's in your meals for today."
+
+DO NOT log the same meal twice in one conversation!
 
 Don't make assumptions - get REAL data with tools before answering!
 
