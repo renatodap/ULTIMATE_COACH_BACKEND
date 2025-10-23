@@ -1449,7 +1449,7 @@ class ToolService:
                     # Create meal item data (convert to Pydantic model)
                     meal_items.append(MealItemBase(
                         food_id=custom_food_id,
-                        quantity=1,  # Always 1 (grams are the actual amount)
+                        quantity=grams,  # For gram-based logging, quantity equals grams (nutrition_service expects this)
                         serving_id=None,  # Logging by grams
                         grams=grams,
                         calories=calories,
