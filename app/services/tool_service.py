@@ -1387,6 +1387,81 @@ class ToolService:
 
                 # Process each food item in this meal
                 meal_items = []
+                # Helper function to detect serving units in food name
+                def parse_serving_info(food_name: str) -> dict:
+                    """
+                    Parse food name to detect serving units for better UX display.
+
+                    Examples:
+                    - "large mozzarella pizza" → unit="pizza", label="large"
+                    - "2 slices pepperoni pizza" → unit="slice", quantity=2
+                    - "medium burger" → unit="burger", label="medium"
+                    - "300g chicken breast" → None (gram-based)
+                    """
+                    import re
+
+                    # Common serving units to detect
+                    serving_units = {
+                        # Whole items
+                        'pizza': 'pizza', 'burger': 'burger', 'sandwich': 'sandwich',
+                        'taco': 'taco', 'burrito': 'burrito', 'wrap': 'wrap',
+                        'bagel': 'bagel', 'muffin': 'muffin', 'donut': 'donut',
+                        'cookie': 'cookie', 'brownie': 'brownie',
+
+                        # Portions
+                        'slice': 'slice', 'slices': 'slice',
+                        'piece': 'piece', 'pieces': 'piece',
+                        'serving': 'serving', 'servings': 'serving',
+
+                        # Bowls/containers
+                        'bowl': 'bowl', 'cup': 'cup', 'plate': 'plate',
+                        'bar': 'bar',  # protein bar, granola bar
+                    }
+
+                    # Size descriptors
+                    size_descriptors = ['small', 'medium', 'large', 'extra large', 'xl', 'jumbo']
+
+                    food_lower = food_name.lower()
+
+                    # Check for serving units
+                    detected_unit = None
+                    for key, unit in serving_units.items():
+                        if key in food_lower:
+                            detected_unit = unit
+                            break
+
+                    if not detected_unit:
+                        return None  # Use gram-based logging
+
+                    # Check for size descriptor
+                    detected_label = None
+                    for size in size_descriptors:
+                        if size in food_lower:
+                            detected_label = size
+                            break
+
+                    # Extract quantity if present (e.g., "2 slices")
+                    quantity_match = re.match(r'^(\d+)\s+', food_lower)
+                    quantity = int(quantity_match.group(1)) if quantity_match else 1
+
+                    # Clean base name (remove quantity, size, unit)
+                    base_name = food_name
+                    if quantity_match:
+                        base_name = base_name[quantity_match.end():]
+                    if detected_label:
+                        base_name = re.sub(detected_label, '', base_name, flags=re.IGNORECASE)
+                    # Remove unit from name (keep rest for flavor description)
+                    # e.g., "pizza mozzarella" stays, just "pizza" removed if at start/end
+
+                    base_name = base_name.strip()
+
+                    return {
+                        'unit': detected_unit,
+                        'label': detected_label,
+                        'quantity': quantity,
+                        'base_name': base_name
+                    }
+
                 for idx, item in enumerate(items_data):
                     # 🔍 DEBUG: Log exactly what AI sent
                     logger.info(
@@ -1446,20 +1521,77 @@ class ToolService:
 
                     custom_food_id = food_result.data[0]["id"]
 
-                    # Create meal item data (convert to Pydantic model)
-                    meal_items.append(MealItemBase(
-                        food_id=custom_food_id,
-                        quantity=grams,  # For gram-based logging, quantity equals grams (nutrition_service expects this)
-                        serving_id=None,  # Logging by grams
-                        grams=grams,
-                        calories=calories,
-                        protein_g=protein_g,
-                        carbs_g=carbs_g,
-                        fat_g=fat_g,
-                        display_unit="g",
-                        display_label=None,
-                        display_order=idx
-                    ))
+                    # 🎯 Smart serving detection for better UX
+                    serving_info = parse_serving_info(food_name)
+
+                    if serving_info:
+                        # Serving-based logging (e.g., "1 large pizza" instead of "700g")
+                        logger.info(
+                            "[log_meals_quick] 🎯 Detected serving unit",
+                            food_name=food_name,
+                            unit=serving_info['unit'],
+                            label=serving_info['label'],
+                            quantity=serving_info['quantity']
+                        )
+
+                        # Create food_serving entry for this custom food
+                        serving_result = self.supabase.table("food_servings").insert({
+                            "food_id": custom_food_id,
+                            "serving_size": Decimal(str(serving_info['quantity'])),
+                            "serving_unit": serving_info['unit'],
+                            "serving_label": serving_info['label'],
+                            "grams_per_serving": float(grams / serving_info['quantity']),  # grams per single unit
+                            "is_default": True,
+                            "display_order": 0
+                        }).execute()
+
+                        if not serving_result.data:
+                            logger.warning("[log_meals_quick] Failed to create serving, falling back to grams")
+                            serving_id = None
+                            display_unit = "g"
+                            display_label = None
+                            quantity_val = grams  # Fall back to gram-based
+                        else:
+                            serving_id = serving_result.data[0]["id"]
+                            display_unit = serving_info['unit']
+                            display_label = serving_info['label']
+                            quantity_val = Decimal(str(serving_info['quantity']))
+
+                        # Create meal item with serving-based logging
+                        meal_items.append(MealItemBase(
+                            food_id=custom_food_id,
+                            quantity=quantity_val,  # Number of servings (e.g., 1 pizza, 2 slices)
+                            serving_id=serving_id,
+                            grams=grams,
+                            calories=calories,
+                            protein_g=protein_g,
+                            carbs_g=carbs_g,
+                            fat_g=fat_g,
+                            display_unit=display_unit,
+                            display_label=display_label,
+                            display_order=idx
+                        ))
+
+                    else:
+                        # Gram-based logging (e.g., "300g chicken breast")
+                        logger.info(
+                            "[log_meals_quick] ℹ️ No serving unit detected, using gram-based",
+                            food_name=food_name
+                        )
+
+                        meal_items.append(MealItemBase(
+                            food_id=custom_food_id,
+                            quantity=grams,  # For gram-based logging, quantity equals grams (nutrition_service expects this)
+                            serving_id=None,
+                            grams=grams,
+                            calories=calories,
+                            protein_g=protein_g,
+                            carbs_g=carbs_g,
+                            fat_g=fat_g,
+                            display_unit="g",
+                            display_label=None,
+                            display_order=idx
+                        ))
 
                 # Create meal with all items
                 from uuid import UUID
