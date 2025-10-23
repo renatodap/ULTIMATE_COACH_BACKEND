@@ -405,7 +405,7 @@ class UnifiedCoachService:
                 openai_messages = [{"role": "system", "content": system_prompt}] + messages
 
                 response = await self.anthropic.chat.completions.create(
-                    model="deepseek/deepseek-chat:exacto",  # 🔥 DeepSeek v3.1 :exacto - precision tool calling
+                    model="deepseek/deepseek-chat",  # 🔥 DeepSeek v3 via OpenRouter - 95% cost savings
                     max_tokens=1024,
                     messages=openai_messages,
                     tools=COACH_TOOLS
@@ -449,7 +449,7 @@ class UnifiedCoachService:
                         conversation_id=conversation_id,
                         content=final_text,
                         ai_provider='openrouter',
-                        ai_model='deepseek/deepseek-chat:exacto',
+                        ai_model='deepseek/deepseek-chat',
                         tokens_used=total_tokens,
                         cost_usd=total_cost,
                         context_used={
@@ -479,7 +479,7 @@ class UnifiedCoachService:
                         "tokens_used": total_tokens,
                         "cost_usd": total_cost,
                         "tools_used": tools_used,
-                        "model": "deepseek/deepseek-chat:exacto",
+                        "model": "deepseek/deepseek-chat",
                         "complexity": "complex"
                     }
 
@@ -574,7 +574,7 @@ class UnifiedCoachService:
                 conversation_id=conversation_id,
                 content=final_text,
                 ai_provider='openrouter',
-                ai_model='deepseek/deepseek-chat:exacto',
+                ai_model='deepseek/deepseek-chat',
                 tokens_used=total_tokens,
                 cost_usd=total_cost,
                 context_used={
@@ -594,7 +594,7 @@ class UnifiedCoachService:
                 "tokens_used": total_tokens,
                 "cost_usd": total_cost,
                 "tools_used": tools_used,
-                "model": "deepseek/deepseek-chat:exacto",
+                "model": "deepseek/deepseek-chat",
                 "complexity": "complex",
                 "warning": "max_iterations_reached"
             }
@@ -615,7 +615,7 @@ class UnifiedCoachService:
                     "tokens_used": 0,
                     "cost_usd": 0,
                     "tools_used": [],
-                    "model": "deepseek/deepseek-chat:exacto",
+                    "model": "deepseek/deepseek-chat",
                     "complexity": "simple",
                     "rate_limited": True
                 }
