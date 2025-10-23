@@ -1388,6 +1388,18 @@ class ToolService:
                 # Process each food item in this meal
                 meal_items = []
                 for idx, item in enumerate(items_data):
+                    # 🔍 DEBUG: Log exactly what AI sent
+                    logger.info(
+                        "[log_meals_quick] 🔍 RAW ITEM FROM AI",
+                        idx=idx,
+                        food_name=item.get("food_name"),
+                        grams=item.get("grams"),
+                        calories=item.get("calories"),
+                        protein_g=item.get("protein_g"),
+                        carbs_g=item.get("carbs_g"),
+                        fat_g=item.get("fat_g")
+                    )
+
                     # Validate required fields in item
                     required_fields = ["food_name", "grams", "calories", "protein_g", "carbs_g", "fat_g"]
                     missing_fields = [f for f in required_fields if f not in item]
