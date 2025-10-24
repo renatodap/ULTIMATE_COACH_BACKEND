@@ -209,6 +209,23 @@ class UpdateMealRequest(BaseModel):
     notes: Optional[str] = Field(None, max_length=1000)
 
 
+class UpdateMealItemRequest(BaseModel):
+    """Request to update a single meal item (quantity/serving)."""
+    quantity: Optional[Decimal] = Field(None, gt=0, description="New quantity (grams or servings)")
+    serving_id: Optional[UUID] = Field(None, description="New serving size (null for grams)")
+
+    # Calculated nutrition values (backend will recalculate, but frontend sends for validation)
+    grams: Optional[Decimal] = Field(None, gt=0, description="Total grams")
+    calories: Optional[Decimal] = Field(None, ge=0, description="Calculated calories")
+    protein_g: Optional[Decimal] = Field(None, ge=0, description="Calculated protein")
+    carbs_g: Optional[Decimal] = Field(None, ge=0, description="Calculated carbs")
+    fat_g: Optional[Decimal] = Field(None, ge=0, description="Calculated fat")
+
+    # Display info
+    display_unit: Optional[str] = Field(None, description="Unit for display (g, scoop, etc)")
+    display_label: Optional[str] = Field(None, description="Optional label (medium, large, etc)")
+
+
 class Meal(BaseModel):
     """
     A meal with nutrition totals and food items.

@@ -15,6 +15,8 @@ from app.models.nutrition import (
     Meal,
     CreateMealRequest,
     UpdateMealRequest,
+    UpdateMealItemRequest,
+    MealItemBase,
     MealListResponse,
     NutritionStats,
 )
@@ -289,6 +291,216 @@ async def delete_meal(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to delete meal",
+        )
+
+
+@router.delete(
+    "/meals/{meal_id}/items/{item_id}",
+    response_model=Optional[Meal],
+    status_code=status.HTTP_200_OK,
+    summary="Delete food item from meal",
+    description="Delete a single food item from a meal. If last item, deletes entire meal."
+)
+async def delete_meal_item(
+    meal_id: UUID,
+    item_id: UUID,
+    current_user: dict = Depends(get_current_user),
+) -> Optional[Meal]:
+    """
+    Delete a single food item from a meal.
+
+    Returns updated meal if items remain, or None if meal was deleted (last item).
+
+    Args:
+        meal_id: Meal UUID
+        item_id: Item UUID
+        current_user: Authenticated user
+
+    Returns:
+        Updated meal or None if meal was deleted
+    """
+    try:
+        result = await nutrition_service.delete_meal_item(
+            meal_id=meal_id,
+            item_id=item_id,
+            user_id=current_user["id"]
+        )
+
+        if result is None:
+            logger.info(
+                "meal_item_delete_removed_last_item",
+                meal_id=str(meal_id),
+                item_id=str(item_id),
+                user_id=current_user["id"]
+            )
+        else:
+            logger.info(
+                "meal_item_deleted_success",
+                meal_id=str(meal_id),
+                item_id=str(item_id),
+                remaining_items=len(result.items),
+                user_id=current_user["id"]
+            )
+
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            "meal_item_deletion_error",
+            meal_id=str(meal_id),
+            item_id=str(item_id),
+            user_id=current_user["id"],
+            error=str(e),
+            exc_info=True
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete meal item"
+        )
+
+
+@router.patch(
+    "/meals/{meal_id}/items/{item_id}",
+    response_model=Meal,
+    status_code=status.HTTP_200_OK,
+    summary="Update food item in meal",
+    description="Update quantity or serving of a single food item within a meal"
+)
+async def update_meal_item(
+    meal_id: UUID,
+    item_id: UUID,
+    request: UpdateMealItemRequest,
+    current_user: dict = Depends(get_current_user),
+) -> Meal:
+    """
+    Update a single food item's quantity or serving.
+
+    Backend recalculates nutrition values. Does not trust frontend values.
+
+    Args:
+        meal_id: Meal UUID
+        item_id: Item UUID
+        request: Update data (quantity, serving_id, etc)
+        current_user: Authenticated user
+
+    Returns:
+        Updated meal with recalculated totals
+    """
+    try:
+        meal = await nutrition_service.update_meal_item(
+            meal_id=meal_id,
+            item_id=item_id,
+            updates=request,
+            user_id=current_user["id"]
+        )
+
+        logger.info(
+            "meal_item_updated_success",
+            meal_id=str(meal_id),
+            item_id=str(item_id),
+            new_quantity=float(request.quantity) if request.quantity else None,
+            user_id=current_user["id"]
+        )
+
+        return meal
+
+    except HTTPException:
+        raise
+    except ValueError as e:
+        logger.warning(
+            "meal_item_update_validation_error",
+            meal_id=str(meal_id),
+            item_id=str(item_id),
+            user_id=current_user["id"],
+            error=str(e)
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error(
+            "meal_item_update_error",
+            meal_id=str(meal_id),
+            item_id=str(item_id),
+            user_id=current_user["id"],
+            error=str(e),
+            exc_info=True
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update meal item"
+        )
+
+
+@router.post(
+    "/meals/{meal_id}/items",
+    response_model=Meal,
+    status_code=status.HTTP_201_CREATED,
+    summary="Add food item to meal",
+    description="Add a new food item to an existing meal"
+)
+async def add_meal_item(
+    meal_id: UUID,
+    item: MealItemBase,
+    current_user: dict = Depends(get_current_user),
+) -> Meal:
+    """
+    Add a new food item to an existing meal.
+
+    Recalculates meal nutrition totals.
+
+    Args:
+        meal_id: Meal UUID
+        item: Food item data
+        current_user: Authenticated user
+
+    Returns:
+        Updated meal with new item
+    """
+    try:
+        meal = await nutrition_service.add_meal_item(
+            meal_id=meal_id,
+            item=item,
+            user_id=current_user["id"]
+        )
+
+        logger.info(
+            "meal_item_added_success",
+            meal_id=str(meal_id),
+            food_id=str(item.food_id),
+            calories=float(item.calories),
+            user_id=current_user["id"]
+        )
+
+        return meal
+
+    except HTTPException:
+        raise
+    except ValueError as e:
+        logger.warning(
+            "meal_item_add_validation_error",
+            meal_id=str(meal_id),
+            user_id=current_user["id"],
+            error=str(e)
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error(
+            "meal_item_add_error",
+            meal_id=str(meal_id),
+            user_id=current_user["id"],
+            error=str(e),
+            exc_info=True
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to add meal item"
         )
 
 

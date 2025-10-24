@@ -976,6 +976,483 @@ class NutritionService:
             logger.error("delete_meal_error", meal_id=str(meal_id), error=str(e))
             return False
 
+    async def delete_meal_item(
+        self, meal_id: UUID, item_id: UUID, user_id: UUID
+    ) -> Optional[Meal]:
+        """
+        Delete a single food item from a meal.
+
+        If this is the last item in the meal, deletes the entire meal.
+
+        Returns:
+            Updated meal if items remain, None if meal was deleted (last item removed)
+
+        Raises:
+            HTTPException 404: Meal not found or not owned by user
+            HTTPException 404: Item not found in meal
+        """
+        from fastapi import HTTPException, status
+
+        try:
+            # Get the meal first to verify ownership
+            meal = await self.get_meal(meal_id, user_id)
+            if not meal:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Meal not found"
+                )
+
+            # Check if item exists in meal
+            item_exists = any(item.id == item_id for item in meal.items)
+            if not item_exists:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Food item not found in meal"
+                )
+
+            # If this is the last item, delete the entire meal
+            if len(meal.items) == 1:
+                await self.delete_meal(meal_id, user_id)
+                logger.info(
+                    "meal_deleted_last_item_removed",
+                    meal_id=str(meal_id),
+                    item_id=str(item_id),
+                    user_id=str(user_id)
+                )
+                return None
+
+            # Delete the specific item
+            delete_response = (
+                supabase_service.client.table("meal_items")
+                .delete()
+                .eq("id", str(item_id))
+                .eq("meal_id", str(meal_id))
+                .execute()
+            )
+
+            if not delete_response.data:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Failed to delete item"
+                )
+
+            # Recalculate meal totals
+            remaining_items = [item for item in meal.items if item.id != item_id]
+            new_total_calories = sum(item.calories for item in remaining_items)
+            new_total_protein = sum(item.protein_g for item in remaining_items)
+            new_total_carbs = sum(item.carbs_g for item in remaining_items)
+            new_total_fat = sum(item.fat_g for item in remaining_items)
+
+            # Update meal totals
+            update_response = (
+                supabase_service.client.table("meals")
+                .update({
+                    "total_calories": float(new_total_calories),
+                    "total_protein_g": float(new_total_protein),
+                    "total_carbs_g": float(new_total_carbs),
+                    "total_fat_g": float(new_total_fat),
+                    "updated_at": datetime.utcnow().isoformat()
+                })
+                .eq("id", str(meal_id))
+                .eq("user_id", str(user_id))
+                .execute()
+            )
+
+            logger.info(
+                "meal_item_deleted",
+                meal_id=str(meal_id),
+                item_id=str(item_id),
+                remaining_items=len(remaining_items),
+                user_id=str(user_id)
+            )
+
+            # Return updated meal
+            return await self.get_meal(meal_id, user_id)
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(
+                "delete_meal_item_error",
+                meal_id=str(meal_id),
+                item_id=str(item_id),
+                error=str(e),
+                exc_info=True
+            )
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to delete meal item"
+            )
+
+    async def update_meal_item(
+        self,
+        meal_id: UUID,
+        item_id: UUID,
+        updates: "UpdateMealItemRequest",
+        user_id: UUID
+    ) -> Meal:
+        """
+        Update a single meal item (quantity, serving, etc).
+
+        Backend recalculates nutrition values from food data.
+        Does NOT trust frontend-provided nutrition values.
+
+        Raises:
+            HTTPException 404: Meal or item not found
+            HTTPException 400: Invalid serving or food data
+        """
+        from fastapi import HTTPException, status
+
+        try:
+            # Get meal to verify ownership and get current item
+            meal = await self.get_meal(meal_id, user_id)
+            if not meal:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Meal not found"
+                )
+
+            # Find the item
+            current_item = None
+            for item in meal.items:
+                if item.id == item_id:
+                    current_item = item
+                    break
+
+            if not current_item:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Food item not found in meal"
+                )
+
+            # Get food data
+            food_response = (
+                supabase_service.client.table("foods")
+                .select("*, food_servings(*)")
+                .eq("id", str(current_item.food_id))
+                .execute()
+            )
+
+            if not food_response.data:
+                raise FoodNotFoundError(str(current_item.food_id))
+
+            food_data = food_response.data[0]
+            servings_data = food_data.pop("food_servings", [])
+            food = Food(**food_data)
+            food.servings = [FoodServing(**s) for s in servings_data]
+
+            # Determine new values
+            # Frontend always sends quantity + serving_id together, so if quantity is updated,
+            # we must use BOTH new values (serving_id can be None for grams mode)
+            if updates.quantity is not None:
+                new_quantity = updates.quantity
+                new_serving_id = updates.serving_id  # Can be None (grams) or UUID (serving)
+            else:
+                # No update - keep current values
+                new_quantity = current_item.quantity
+                new_serving_id = current_item.serving_id
+
+            # Recalculate nutrition based on new quantity/serving
+            if new_serving_id is None:
+                # Gram-based
+                grams = new_quantity
+                serving = None
+
+                # Validate
+                if grams > 10000:
+                    raise ValueError(f"Maximum 10,000g per item")
+            else:
+                # Serving-based
+                serving = None
+                for s in food.servings:
+                    if s.id == new_serving_id:
+                        serving = s
+                        break
+
+                if not serving:
+                    raise InvalidServingError(str(new_serving_id))
+
+                # Validate serving quantity
+                if new_quantity > 50:
+                    raise ValueError("Maximum 50 servings per item")
+
+                if new_quantity > 10:
+                    logger.warning(
+                        "high_serving_quantity",
+                        meal_id=str(meal_id),
+                        item_id=str(item_id),
+                        quantity=float(new_quantity)
+                    )
+
+                grams = new_quantity * serving.grams_per_serving
+
+            # Calculate nutrition
+            factor = grams / Decimal("100")
+            new_calories = food.calories_per_100g * factor
+            new_protein = food.protein_g_per_100g * factor
+            new_carbs = food.carbs_g_per_100g * factor
+            new_fat = food.fat_g_per_100g * factor
+
+            # Update display fields
+            new_display_unit = updates.display_unit if updates.display_unit else (
+                "g" if new_serving_id is None else serving.serving_unit if serving else current_item.display_unit
+            )
+            new_display_label = updates.display_label if updates.display_label is not None else (
+                None if new_serving_id is None else serving.serving_label if serving else current_item.display_label
+            )
+
+            # Update the item in database
+            update_data = {
+                "quantity": float(new_quantity),
+                "serving_id": str(new_serving_id) if new_serving_id else None,
+                "grams": float(grams),
+                "calories": float(new_calories),
+                "protein_g": float(new_protein),
+                "carbs_g": float(new_carbs),
+                "fat_g": float(new_fat),
+                "display_unit": new_display_unit,
+                "display_label": new_display_label
+            }
+
+            update_response = (
+                supabase_service.client.table("meal_items")
+                .update(update_data)
+                .eq("id", str(item_id))
+                .eq("meal_id", str(meal_id))
+                .execute()
+            )
+
+            if not update_response.data:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Failed to update item"
+                )
+
+            # Recalculate meal totals
+            updated_meal_items = []
+            for item in meal.items:
+                if item.id == item_id:
+                    # Use new values
+                    updated_meal_items.append({
+                        "calories": new_calories,
+                        "protein_g": new_protein,
+                        "carbs_g": new_carbs,
+                        "fat_g": new_fat
+                    })
+                else:
+                    # Keep existing values
+                    updated_meal_items.append({
+                        "calories": item.calories,
+                        "protein_g": item.protein_g,
+                        "carbs_g": item.carbs_g,
+                        "fat_g": item.fat_g
+                    })
+
+            new_total_calories = sum(Decimal(str(i["calories"])) for i in updated_meal_items)
+            new_total_protein = sum(Decimal(str(i["protein_g"])) for i in updated_meal_items)
+            new_total_carbs = sum(Decimal(str(i["carbs_g"])) for i in updated_meal_items)
+            new_total_fat = sum(Decimal(str(i["fat_g"])) for i in updated_meal_items)
+
+            # Update meal totals
+            meal_update_response = (
+                supabase_service.client.table("meals")
+                .update({
+                    "total_calories": float(new_total_calories),
+                    "total_protein_g": float(new_total_protein),
+                    "total_carbs_g": float(new_total_carbs),
+                    "total_fat_g": float(new_total_fat),
+                    "updated_at": datetime.utcnow().isoformat()
+                })
+                .eq("id", str(meal_id))
+                .eq("user_id", str(user_id))
+                .execute()
+            )
+
+            logger.info(
+                "meal_item_updated",
+                meal_id=str(meal_id),
+                item_id=str(item_id),
+                old_quantity=float(current_item.quantity),
+                new_quantity=float(new_quantity),
+                user_id=str(user_id)
+            )
+
+            # Return updated meal
+            return await self.get_meal(meal_id, user_id)
+
+        except HTTPException:
+            raise
+        except (FoodNotFoundError, InvalidServingError, ServingMismatchError):
+            raise
+        except Exception as e:
+            logger.error(
+                "update_meal_item_error",
+                meal_id=str(meal_id),
+                item_id=str(item_id),
+                error=str(e),
+                exc_info=True
+            )
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to update meal item"
+            )
+
+    async def add_meal_item(
+        self, meal_id: UUID, item: MealItemBase, user_id: UUID
+    ) -> Meal:
+        """
+        Add a new food item to an existing meal.
+
+        Recalculates meal nutrition totals after adding.
+
+        Raises:
+            HTTPException 404: Meal not found
+            HTTPException 400: Invalid food or serving data
+        """
+        from fastapi import HTTPException, status
+
+        try:
+            # Verify meal exists and user owns it
+            meal = await self.get_meal(meal_id, user_id)
+            if not meal:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Meal not found"
+                )
+
+            # Get food data
+            food_response = (
+                supabase_service.client.table("foods")
+                .select("*, food_servings(*)")
+                .eq("id", str(item.food_id))
+                .execute()
+            )
+
+            if not food_response.data:
+                raise FoodNotFoundError(str(item.food_id))
+
+            food_data = food_response.data[0]
+            servings_data = food_data.pop("food_servings", [])
+            food = Food(**food_data)
+            food.servings = [FoodServing(**s) for s in servings_data]
+
+            # Validate and calculate (same logic as create_meal)
+            if item.serving_id is None:
+                # Gram-based
+                grams = item.quantity
+                serving = None
+
+                if grams > 10000:
+                    raise ValueError("Maximum 10,000g per item")
+            else:
+                # Serving-based
+                serving = None
+                for s in food.servings:
+                    if s.id == item.serving_id:
+                        serving = s
+                        break
+
+                if not serving:
+                    raise InvalidServingError(str(item.serving_id))
+
+                if item.quantity > 50:
+                    raise ValueError("Maximum 50 servings per item")
+
+                if item.quantity > 10:
+                    logger.warning(
+                        "high_serving_quantity_add",
+                        meal_id=str(meal_id),
+                        quantity=float(item.quantity)
+                    )
+
+                grams = item.quantity * serving.grams_per_serving
+
+            # Calculate nutrition
+            factor = grams / Decimal("100")
+            calories = food.calories_per_100g * factor
+            protein = food.protein_g_per_100g * factor
+            carbs = food.carbs_g_per_100g * factor
+            fat = food.fat_g_per_100g * factor
+
+            # Determine display order (append to end)
+            display_order = item.display_order if item.display_order is not None else len(meal.items)
+
+            # Insert new meal item
+            new_item_data = {
+                "meal_id": str(meal_id),
+                "food_id": str(item.food_id),
+                "quantity": float(item.quantity),
+                "serving_id": str(item.serving_id) if item.serving_id else None,
+                "grams": float(grams),
+                "calories": float(calories),
+                "protein_g": float(protein),
+                "carbs_g": float(carbs),
+                "fat_g": float(fat),
+                "display_unit": item.display_unit,
+                "display_label": item.display_label,
+                "display_order": display_order
+            }
+
+            insert_response = (
+                supabase_service.client.table("meal_items")
+                .insert(new_item_data)
+                .execute()
+            )
+
+            if not insert_response.data:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Failed to add item to meal"
+                )
+
+            # Recalculate meal totals
+            new_total_calories = meal.total_calories + calories
+            new_total_protein = meal.total_protein_g + protein
+            new_total_carbs = meal.total_carbs_g + carbs
+            new_total_fat = meal.total_fat_g + fat
+
+            # Update meal totals
+            update_response = (
+                supabase_service.client.table("meals")
+                .update({
+                    "total_calories": float(new_total_calories),
+                    "total_protein_g": float(new_total_protein),
+                    "total_carbs_g": float(new_total_carbs),
+                    "total_fat_g": float(new_total_fat),
+                    "updated_at": datetime.utcnow().isoformat()
+                })
+                .eq("id", str(meal_id))
+                .eq("user_id", str(user_id))
+                .execute()
+            )
+
+            logger.info(
+                "meal_item_added",
+                meal_id=str(meal_id),
+                food_id=str(item.food_id),
+                calories=float(calories),
+                user_id=str(user_id)
+            )
+
+            # Return updated meal
+            return await self.get_meal(meal_id, user_id)
+
+        except HTTPException:
+            raise
+        except (FoodNotFoundError, InvalidServingError):
+            raise
+        except Exception as e:
+            logger.error(
+                "add_meal_item_error",
+                meal_id=str(meal_id),
+                error=str(e),
+                exc_info=True
+            )
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to add item to meal"
+            )
+
     # =====================================================
     # Nutrition Stats
     # =====================================================
