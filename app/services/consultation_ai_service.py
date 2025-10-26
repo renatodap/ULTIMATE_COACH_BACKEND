@@ -426,69 +426,293 @@ You: [insert_user_typical_meal_food for each with frequencies and meal associati
 """,
 
             "goals_events": """
-CURRENT SECTION: Goals & Upcoming Events
+CURRENT SECTION: Goals & What Success Looks Like
 
-YOUR GOAL: Understand what the user is working toward.
+YOUR GOAL: Understand what the user is working toward and WHY.
 
-QUESTIONS TO ASK:
-- What are you training for? Any specific events or goals?
-- When is it?
-- How important is this to you? (priority 1-5)
-- What specific outcomes do you want?
-- What improvements are you focusing on?
+CRITICAL: Every user has different goals. Don't assume everyone is training for an event or competition.
+
+QUESTIONS TO ASK (Start broad, probe deeper):
+
+1. **Main Goals** (Start here)
+   - "What are your main fitness and health goals right now?"
+   - "What would success look like for you 3-6 months from now?"
+   - "If you could wave a magic wand, what would change about your health/fitness?"
+
+2. **Why This Matters** (Probe motivation)
+   - "Why is this important to you?"
+   - "What will achieving this give you?"
+   - "How will your life be different when you reach this goal?"
+
+3. **Specific Outcomes** (Get concrete)
+   - For weight loss: "What's your target weight? When do you want to reach it?"
+   - For muscle gain: "How much muscle? Which areas?"
+   - For performance: "What specific improvements? (strength, endurance, speed)"
+   - For aesthetic: "What look are you going for? Any reference points?"
+   - For health: "What health markers? (energy, sleep, pain reduction, blood work)"
+
+4. **Timeline & Urgency**
+   - "Is there any specific deadline or event? Or more of a long-term lifestyle change?"
+   - "How quickly do you want to see results?"
+   - "What's the priority level (1-5)?"
+
+5. **Current vs Target** (Establish baseline)
+   - "Where are you now vs where you want to be?"
+   - Extract specific current values and targets
+
+6. **Multiple Goals** (Common!)
+   - "Do you have other goals too? Sometimes people want to lose fat AND build muscle, or look better AND perform better"
+   - Identify conflicts (e.g., weight loss + strength gain) and priorities
+
+GOAL TYPES TO LISTEN FOR:
+- **Weight Loss** - target weight, timeline, why they want to lose
+- **Muscle Gain** - how much, where, for what reason
+- **Body Recomposition** - lose fat AND build muscle simultaneously
+- **Performance** - get stronger, run faster, jump higher
+- **Aesthetic** - look leaner, more muscular, more toned
+- **Health** - more energy, better sleep, less pain, improve blood work
+- **Sport-Specific** - improve at tennis, basketball, powerlifting
+- **Event-Based** - race, competition, wedding, vacation, reunion
+- **Maintenance** - stay where they are, don't regress
+- **General Fitness** - "just feel better" or "be more active"
 
 DATA TO EXTRACT:
-- Event types (competitions, races, personal milestones, etc.)
-- Event dates
-- Priorities
-- Improvement goals (strength, endurance, aesthetic, etc.)
-- Current vs target values
+
+For improvement goals (insert_user_improvement_goal):
+- goal_type: "strength", "endurance", "skill", "aesthetic", "body_composition", "mobility", "performance", "health"
+- target_description: User's words - what they want to achieve
+- measurement_metric: "weight_kg", "body_fat_%", "squat_max", "run_time_5k", etc.
+- current_value: Where they are now
+- target_value: Where they want to be
+- target_date: When they want to achieve it (nullable if lifestyle goal)
+- priority: 1-5 (how important)
+
+For upcoming events (insert_user_upcoming_event) - ONLY if they mention one:
+- event_type_id: Search database first
+- event_name: "Half Marathon", "Wedding", "Vacation", "Powerlifting Meet"
+- event_date: Actual date
+- priority: 1-5
 
 TOOLS TO USE:
-- search_event_types(query)
-- insert_user_upcoming_event(...)
-- insert_user_improvement_goal(...)
+- search_event_types(query) - IF they mention an event
+- insert_user_upcoming_event(...) - IF they have a specific event
+- insert_user_improvement_goal(...) - ALWAYS use this for goals
 
-EXAMPLE:
+CONVERSATION STYLE:
+- Start open-ended: "What are your main fitness and health goals?"
+- Don't assume they have an event - many don't
+- Validate all goal types: "Wanting to just feel better and have more energy is a great goal"
+- Probe the WHY: "Why is losing 20 lbs important to you?"
+- Get specific: "When you say 'get toned', what does that look like?"
+- Handle multiple goals: "So you want to lose fat but keep or build muscle - got it"
+
+EXAMPLES:
+
+**Example 1: Weight Loss (No Event)**
+AI: "What are your main fitness and health goals right now?"
+User: "I want to lose about 20 pounds. I just feel uncomfortable in my body."
+AI: "Got it. What would reaching that 20 pounds down look like for you - how would your life be different?"
+User: "I'd have more energy, feel more confident, and my clothes would fit better. I'm 210 now, want to get to 190."
+AI: [insert_user_improvement_goal(
+    goal_type="body_composition",
+    target_description="Lose 20 lbs to feel more comfortable, have more energy, and fit clothes better",
+    measurement_metric="weight_kg",
+    current_value=95.3,  # 210 lbs
+    target_value=86.2,   # 190 lbs
+    target_date=None,    # No specific deadline
+    priority=4
+)]
+AI: "What's the timeline - any specific deadline or more of a long-term change?"
+User: "No deadline, just want to do it sustainably this time."
+
+**Example 2: Performance + Event**
+AI: "What are your main fitness and health goals?"
 User: "I want to hit a 1500lb total in powerlifting by end of year"
-You: [search_event_types("powerlifting meet")]
-You: [insert_user_upcoming_event(event_type_id="...", event_name="1500lb Total", event_date="2025-12-31", priority=5)]
-You: "Awesome goal! What's your current total?"
+AI: [search_event_types("powerlifting meet")]
+AI: "Awesome goal! Is there a specific competition or just hitting that number?"
+User: "Yeah, there's a meet on December 15th I'm targeting"
+AI: [insert_user_upcoming_event(event_type_id="...", event_name="Powerlifting Meet - 1500lb Total", event_date="2025-12-15", priority=5)]
+AI: "What's your current total?"
 User: "945 right now - 315 squat, 225 bench, 405 deadlift"
-You: [insert_user_improvement_goal for each lift with current and target values]
-""",
+AI: [insert_user_improvement_goal for each lift with current and target values, goal_type="strength"]
+
+**Example 3: General Health (No Numbers)**
+AI: "What are your main fitness and health goals?"
+User: "Honestly, I just want to feel better. I'm always tired and my back hurts."
+AI: "Those are really important goals. Let's break that down - when you say 'feel better', what would that look like day-to-day?"
+User: "I'd wake up with energy instead of dragging myself out of bed. My lower back wouldn't hurt when I sit at my desk all day. I'd actually want to do stuff on weekends instead of being exhausted."
+AI: [insert_user_improvement_goal(
+    goal_type="health",
+    target_description="Increase daily energy levels, reduce/eliminate lower back pain from desk work, have energy for weekend activities",
+    measurement_metric="subjective_energy_1-10",
+    current_value=4,
+    target_value=8,
+    target_date=None,
+    priority=5
+)]
+
+**Example 4: Aesthetic + Timeline**
+AI: "What are your main fitness and health goals?"
+User: "I want to look more muscular. I'm tired of being skinny. I'm going to the beach in July and want to look good shirtless."
+AI: "Got it - build muscle, look better shirtless by July. What does 'more muscular' look like for you - any specific body parts or overall?"
+User: "Mainly chest, arms, and shoulders. I want to fill out a T-shirt better."
+AI: [insert_user_upcoming_event(event_type_id="personal_milestone", event_name="Beach Vacation", event_date="2025-07-15", priority=4)]
+AI: [insert_user_improvement_goal(
+    goal_type="aesthetic",
+    target_description="Build visible muscle in chest, arms, shoulders to fill out T-shirts and look good shirtless",
+    measurement_metric="subjective_appearance",
+    current_value=None,
+    target_value=None,
+    target_date="2025-07-15",
+    priority=5
+)]
+
+**Example 5: Multiple Conflicting Goals**
+AI: "What are your main fitness and health goals?"
+User: "I want to lose fat and build muscle at the same time. And I'm training for a half marathon in 3 weeks."
+AI: "Okay, so you've got three things going on - lose fat, build muscle, and perform well in the half marathon. Those can sometimes conflict. Which is the highest priority right now?"
+User: "Definitely the half marathon performance. After that, I want to work on body composition."
+AI: [insert_user_upcoming_event for half marathon, priority=5]
+AI: [insert_user_improvement_goal for endurance/race performance, priority=5]
+AI: [insert_user_improvement_goal for body composition, priority=3, target_date=after race]
+
+CRITICAL SUCCESS FACTORS:
+1. Start broad - don't assume event or specific goal type
+2. Validate ALL goal types - health, aesthetic, maintenance, "just feel better"
+3. Probe the WHY - motivation is key for personalization
+4. Get specific on what success looks like FOR THEM
+5. Handle multiple goals and identify conflicts
+6. Extract current state vs target state
+7. Understand timeline without assuming there's a deadline
+
+This section should make the user feel heard and understood, regardless of their goal type.""",
 
             "challenges": """
-CURRENT SECTION: Challenges & Constraints
+CURRENT SECTION: Understanding Your Journey (Psychology & Behavioral Patterns)
 
-YOUR GOAL: Understand obstacles and hard limits.
+YOUR GOAL: Extract the USER'S ACTUAL PROBLEM - not just surface goals.
+Most users say "I want to lose weight" but the REAL problems are behavioral patterns that prevent success.
 
-QUESTIONS TO ASK:
-- What's been your biggest challenge with training or nutrition?
-- How often does this happen?
-- What have you tried to address it?
-- What worked? What didn't?
-- Are there any non-negotiables? (rest days, meal timing, excluded exercises/foods)
+CRITICAL APPROACH:
+- Probe for PAST FAILURES and WHY they failed (not just what they tried)
+- Identify BEHAVIORAL TRIGGERS and repeated patterns
+- Understand PSYCHOLOGICAL BLOCKERS (forgetting goals, all-or-nothing thinking, diet-switching)
+- Extract CONFLICTS (performance vs weight loss, social eating vs goals)
 
-DATA TO EXTRACT:
-- Difficulty categories
-- Severity (1-5)
-- Triggers and frequency
-- Attempted solutions
-- Non-negotiable constraints
+QUESTIONS TO PROBE (Ask adaptively based on their responses):
+
+1. **Past Attempts**
+   - "Tell me about the last time you tried to lose weight or get in shape"
+   - Follow up: "How long did you stick with it? What made you stop?"
+   - If they mention diets: "Have you tried other approaches? Why didn't they work for you?"
+
+2. **Behavioral Patterns**
+   - "When you're trying to stick to a plan, what usually derails you?"
+   - "Do you tend to switch between different diet approaches? (keto, IF, paleo, etc.)"
+   - "Do you ever feel like you forget your long-term goals in the moment? When does that happen?"
+
+3. **Relationship with Food**
+   - "Do you ever find yourself eating when you're not hungry? What triggers that?"
+   - "Are there foods or situations where you feel out of control?"
+   - "Do you eat differently when stressed vs relaxed?"
+
+4. **Performance Conflicts** (if they train/compete)
+   - "Are you training for any events? How does that affect your nutrition choices?"
+   - "Have you ever sacrificed performance to lose weight faster? How did that go?"
+
+5. **Decision Fatigue**
+   - "Do you ever feel overwhelmed by all the nutrition information out there?"
+   - "Have you tried following multiple diet approaches at once or in quick succession?"
+
+6. **Psychological Blockers**
+   - "How do you handle 'bad days' - does one bad meal turn into a bad week?"
+   - "What scares you most about starting another nutrition program?"
+   - "Do you tend to be all-or-nothing? (perfect adherence or giving up completely)"
+
+CONVERSATION STYLE:
+- Start broad: "Before we get into the details, tell me about your fitness journey so far"
+- Follow up on specifics: "You mentioned trying keto - how long did that last?"
+- Probe causality: "What made you stop?" "Why do you think that happened?"
+- Validate their experience: "That's really common with endurance athletes"
+- Be empathetic: "That cycle of starting and stopping sounds frustrating"
+- Sound like a therapist, not a form
+
+WHAT TO LISTEN FOR (These are GOLD for personalized coaching):
+- **Repeated patterns**: "I always...", "I keep trying...", "I can't seem to..."
+- **Approach-switching**: Mentions multiple diets (keto, IF, paleo, counting macros)
+- **Forgetting goals**: "In the moment I just...", "I know I should but..."
+- **All-or-nothing**: "Perfect" or "failed", "on the diet" or "off the diet"
+- **External triggers**: Stress, travel, social events, weekends, late nights
+- **Performance conflicts**: Wants weight loss but has race/competition coming up
+- **Specific examples**: "Last Friday I...", "When I'm at my parents' house..."
+
+DATA TO EXTRACT (Save everything they say):
+- difficulty_category: "diet_switching", "emotional_eating", "forgetting_long_term_goals",
+  "all_or_nothing_thinking", "performance_conflict", "decision_fatigue", "weekend_overeating"
+- description: User's EXACT WORDS with specific examples and context
+- severity: 1-5 (how much it impacts their progress)
+- frequency: "daily", "several_times_weekly", "weekly", "monthly"
+- attempted_solutions: What they've tried before (be specific)
+- what_worked: If anything helped (usually nothing or very little)
+- what_didnt_work: Why solutions failed (THIS IS CRITICAL - extract the actual reason)
+- triggers: Specific situations that cause the problem
 
 TOOLS TO USE:
-- insert_user_difficulty(...)
-- insert_user_non_negotiable(...)
+- insert_user_difficulty(...) - Use RICH, detailed descriptions with examples
+- insert_user_non_negotiable(...) - For things that MUST be accommodated
 
-EXAMPLE:
-User: "I travel for work a lot and can't meal prep consistently"
-You: [insert_user_difficulty(category="nutrition", description="...", severity=3, triggers=["work travel"])]
-You: "What have you tried for meals on the road?"
-User: "I just find a Chipotle usually"
-You: [update with attempted_solutions and what_worked]
-You: "Smart solution! We can build a road warrior meal plan with options like that."
-"""
+EXAMPLE CONVERSATION:
+
+AI: "Before we dive into specifics, I'd love to understand your fitness journey so far. What have you tried in the past to reach your goals?"
+
+User: "I've always had this problem with weight loss. I play tennis every day and I'm training for a half marathon in 2 weeks, but I can never stick to a diet. I've tried keto but only lasted 2 weeks. Then I tried intermittent fasting for like 3 days. Then paleo for a week. I just keep switching and nothing works."
+
+AI: "That cycle of trying different approaches is really frustrating. Let's dig into that. When you were on keto for those 2 weeks, what made you stop?"
+
+User: "Honestly, my performance suffered big time. I felt sluggish during tennis and my runs were terrible. Plus I was eating a ton of meat and cheese which felt wrong. I think it's true that performance suffers on low-carb."
+
+AI: [insert_user_difficulty(
+    category="diet_switching",
+    description="Cycles between keto (2 weeks), IF (3 days), paleo (1 week) - never sticks to any approach >2 weeks. Plays tennis daily + training for half marathon in 2 weeks. Keto caused sluggish tennis performance and terrible runs (endurance athlete needs carbs). IF created huge meal habit during eating window. Pattern: tries restrictive diet → performance suffers or creates bad habits → abandons approach → tries new diet.",
+    severity=5,
+    frequency="monthly",
+    attempted_solutions="Keto, intermittent fasting, paleo",
+    what_didnt_work="Keto compromised endurance performance (tennis + half marathon training). IF led to eating huge meals during window, pattern persisted after stopping. Paleo unclear why stopped.",
+    triggers="Training demands conflict with restrictive diets. Wants both performance and weight loss."
+)]
+
+AI: "That makes perfect sense - restricting carbs while training for a half marathon is really tough on performance. And you mentioned intermittent fasting for 3 days - why so short?"
+
+User: "I realized that when I do IF, I end up eating HUGE meals during my eating window because I'm so hungry. Then when I stopped IF, I was still eating huge meals but now all day. It's like I got stuck in that pattern."
+
+AI: [Update difficulty with this detail]
+
+AI: "So it sounds like the diet created a habit that outlasted the diet itself. You also mentioned you 'just keep switching' - why do you think that happens?"
+
+User: "Honestly, sometimes I just forget what I'm trying to do. Like in the moment when I'm eating, I kind of lose track of my long-term goal to get to 180 pounds. I'll just keep eating."
+
+AI: [insert_user_difficulty(
+    category="forgetting_long_term_goals",
+    description="Loses track of long-term weight goal (180 lbs) in the moment while eating - continues eating past fullness. Happens especially after training when very hungry. Says 'in the moment I kind of forget what I'm trying to do.'",
+    severity=4,
+    frequency="several_times_weekly",
+    triggers="After training sessions, extreme hunger, in-the-moment decisions"
+)]
+
+AI: "That 'forgetting in the moment' is super common, especially after hard training when you're really hungry. Here's a question - do you tend to be all-or-nothing with your approach? Like you're either 'on' perfectly or you've 'failed' and given up?"
+
+User: "Oh my god yes. If I have one bad day I feel like I've ruined everything."
+
+AI: [insert_user_difficulty(
+    category="all_or_nothing_thinking",
+    description="One bad meal/day triggers feeling of 'ruined everything' and giving up on the plan. All-or-nothing mindset - either perfect adherence or complete abandonment.",
+    severity=5,
+    frequency="weekly"
+)]
+
+END EXAMPLE.
+
+This section should feel like a deep conversation about their relationship with fitness and food, not a questionnaire. Extract WHY they failed before, not just WHAT they tried. Focus on behavioral patterns and psychological blockers."""
         }
 
         return base_prompt + section_prompts.get(section, "")
@@ -1077,6 +1301,130 @@ You: "Smart solution! We can build a road warrior meal plan with options like th
             return 0
 
     # ========================================================================
+    # CONVERSATIONAL PROFILE GENERATION
+    # ========================================================================
+
+    async def generate_conversational_profile(
+        self,
+        session_id: str,
+        user_id: str
+    ) -> str:
+        """
+        Generate 200-word conversational profile from consultation messages.
+
+        This profile captures:
+        - User's psychology and mindset
+        - Past failures and what didn't work
+        - Current blockers and challenges
+        - Goals and motivations
+        - Communication style and preferences
+
+        Args:
+            session_id: Consultation session UUID
+            user_id: User UUID
+
+        Returns:
+            200-word natural language profile string
+        """
+        try:
+            # Fetch all consultation messages
+            messages_result = self.db.client.table("consultation_messages")\
+                .select("*")\
+                .eq("session_id", session_id)\
+                .order("created_at")\
+                .execute()
+
+            if not messages_result.data or len(messages_result.data) == 0:
+                logger.warning(
+                    "no_consultation_messages_found",
+                    session_id=session_id[:8],
+                    user_id=user_id[:8]
+                )
+                return "User completed consultation but no conversation history available."
+
+            # Build conversation transcript
+            transcript = []
+            for msg in messages_result.data:
+                role = "User" if msg["role"] == "user" else "AI"
+                content = msg["content"]
+                transcript.append(f"{role}: {content}")
+
+            conversation_text = "\n\n".join(transcript)
+
+            # Meta-prompt to generate profile
+            meta_prompt = f"""You are analyzing a fitness consultation conversation to create a brief psychological profile.
+
+CONVERSATION TRANSCRIPT:
+{conversation_text}
+
+Generate a 200-word natural language profile that captures:
+
+1. **Psychology & Mindset** (40 words)
+   - What's their relationship with fitness/nutrition?
+   - All-or-nothing thinker? Perfectionist? Flexible?
+   - Stressed? Confident? Anxious?
+
+2. **Past Failures** (40 words)
+   - What have they tried before?
+   - Why didn't it work?
+   - What patterns led to failure?
+
+3. **Current Blockers** (40 words)
+   - What's stopping them now?
+   - Time? Knowledge? Motivation? Support?
+   - Specific obstacles (travel, social eating, etc.)
+
+4. **Goals & Motivation** (40 words)
+   - What do they actually want?
+   - Why now? What changed?
+   - External vs internal motivation?
+
+5. **Communication Style** (40 words)
+   - How do they talk about fitness?
+   - Need encouragement or tough love?
+   - Prefer simple or detailed explanations?
+
+IMPORTANT:
+- Write in third person ("They...", "The user...")
+- Be specific, not generic
+- Focus on psychological insights, not just facts
+- Exactly 200 words
+- Natural language, not bullet points"""
+
+            # Call Claude to generate profile
+            response = self.anthropic.messages.create(
+                model="claude-3-5-sonnet-20241022",
+                max_tokens=500,
+                temperature=0.7,
+                messages=[{
+                    "role": "user",
+                    "content": meta_prompt
+                }]
+            )
+
+            conversational_profile = response.content[0].text.strip()
+
+            logger.info(
+                "conversational_profile_generated",
+                session_id=session_id[:8],
+                user_id=user_id[:8],
+                profile_length=len(conversational_profile.split())
+            )
+
+            return conversational_profile
+
+        except Exception as e:
+            logger.error(
+                "conversational_profile_generation_failed",
+                session_id=session_id[:8],
+                user_id=user_id[:8],
+                error=str(e),
+                exc_info=True
+            )
+            # Return fallback profile
+            return "User completed consultation. Profile generation failed - using generic coaching approach."
+
+    # ========================================================================
     # SESSION MANAGEMENT
     # ========================================================================
 
@@ -1089,11 +1437,13 @@ You: "Smart solution! We can build a road warrior meal plan with options like th
     ) -> Dict[str, Any]:
         """
         Start a new consultation session.
-        Requires a valid consultation key.
+
+        NOW FREE: Consultation key is optional. If not provided, consultation
+        is free for all users (part of onboarding flow).
 
         Args:
             user_id: User UUID
-            consultation_key: One-time use consultation key
+            consultation_key: Optional consultation key (for premium/gifted access)
             ip_address: Client IP for tracking
             user_agent: Client browser for tracking
 
@@ -1101,15 +1451,7 @@ You: "Smart solution! We can build a road warrior meal plan with options like th
             Dict with session_id and initial message
         """
         try:
-            # Validate consultation key is provided
-            if not consultation_key:
-                return {
-                    "success": False,
-                    "error": "key_required",
-                    "message": "A consultation key is required to start a consultation."
-                }
-
-            # Create session first (needed for key redemption)
+            # Create session first
             session_data = {
                 "user_id": user_id,
                 "current_section": "training_modalities",
@@ -1122,33 +1464,39 @@ You: "Smart solution! We can build a road warrior meal plan with options like th
 
             session_id = response.data[0]["id"]
 
-            # Validate and redeem consultation key
-            key_validation = self.db.client.rpc(
-                "validate_and_redeem_consultation_key",
-                {
-                    "p_key_code": consultation_key,
-                    "p_user_id": user_id,
-                    "p_session_id": session_id,
-                    "p_ip_address": ip_address,
-                    "p_user_agent": user_agent
-                }
-            ).execute()
+            # If consultation key provided, validate and redeem it (optional premium feature)
+            if consultation_key:
+                key_validation = self.db.client.rpc(
+                    "validate_and_redeem_consultation_key",
+                    {
+                        "p_key_code": consultation_key,
+                        "p_user_id": user_id,
+                        "p_session_id": session_id,
+                        "p_ip_address": ip_address,
+                        "p_user_agent": user_agent
+                    }
+                ).execute()
 
-            key_result = key_validation.data
+                key_result = key_validation.data
 
-            # Check if key validation failed
-            if not key_result.get("success"):
-                # Delete the session since key was invalid
-                self.db.client.table("consultation_sessions")\
-                    .delete()\
-                    .eq("id", session_id)\
-                    .execute()
+                # Check if key validation failed
+                if not key_result.get("success"):
+                    # Delete the session since key was invalid
+                    self.db.client.table("consultation_sessions")\
+                        .delete()\
+                        .eq("id", session_id)\
+                        .execute()
 
-                return {
-                    "success": False,
-                    "error": key_result.get("error"),
-                    "message": key_result.get("message")
-                }
+                    return {
+                        "success": False,
+                        "error": key_result.get("error"),
+                        "message": key_result.get("message")
+                    }
+
+                logger.info("consultation_key_redeemed", user_id=user_id[:8], session_id=session_id[:8])
+            else:
+                # Free consultation (no key required)
+                logger.info("free_consultation_started", user_id=user_id[:8], session_id=session_id[:8])
 
             # Generate welcome message
             initial_message = """Hey! I'm excited to help you build a personalized training and nutrition plan. 🎯
