@@ -219,6 +219,7 @@ async def get_my_profile(user: dict = Depends(get_current_user)) -> JSONResponse
             "timezone": profile.get("timezone", "America/New_York"),
 
             # Consultation
+            "consultation_enabled": profile.get("consultation_enabled", False),
             "consultation_completed": profile.get("consultation_completed", False),
             "consultation_completed_at": profile.get("consultation_completed_at"),
         })
