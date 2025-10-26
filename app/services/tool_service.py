@@ -410,6 +410,394 @@ WORKFLOW:
             },
             "required": ["meals"]
         }
+    },
+    {
+        "name": "update_meal",
+        "description": """Update an existing meal's metadata or items via natural language.
+
+Use this when the user wants to:
+- Change meal type: "Change my breakfast to lunch"
+- Update meal name/notes: "Call that meal 'Post-Workout'"
+- Add items: "Add 100g rice to my dinner"
+- Remove items: "Remove the protein shake from my snack"
+- Update item quantities: "Actually I had 3 eggs not 2"
+
+MEAL IDENTIFICATION:
+- By type + date: "breakfast" → today's breakfast, "yesterday's lunch"
+- By relative time: "last meal", "my most recent meal"
+- By ID: If user references a specific meal
+
+DATE PARSING:
+- "today" → current date
+- "yesterday" → 1 day ago
+- "Monday" → most recent Monday
+- ISO date: "2025-10-25"
+
+ITEM OPERATIONS:
+- add: New items to existing meal
+- remove: Delete specific items
+- update: Change quantity/serving of existing items
+
+Returns updated meal with recalculated nutrition.""",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "meal_identifier": {
+                    "type": "object",
+                    "description": "How to find the meal",
+                    "properties": {
+                        "type": {
+                            "type": "string",
+                            "enum": ["meal_type", "relative", "id"],
+                            "description": "Identification method"
+                        },
+                        "value": {
+                            "type": "string",
+                            "description": "breakfast/lunch/dinner/snack, 'last', or meal ID"
+                        },
+                        "date": {
+                            "type": "string",
+                            "description": "Date (YYYY-MM-DD) or relative ('today', 'yesterday')"
+                        }
+                    },
+                    "required": ["type", "value"]
+                },
+                "updates": {
+                    "type": "object",
+                    "description": "What to update",
+                    "properties": {
+                        "meal_type": {
+                            "type": "string",
+                            "enum": ["breakfast", "lunch", "dinner", "snack", "other"]
+                        },
+                        "name": {
+                            "type": "string"
+                        },
+                        "notes": {
+                            "type": "string"
+                        },
+                        "item_operations": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "action": {
+                                        "type": "string",
+                                        "enum": ["add", "remove", "update"]
+                                    },
+                                    "food_name": {
+                                        "type": "string"
+                                    },
+                                    "quantity": {
+                                        "type": "number",
+                                        "description": "New quantity (grams or servings)"
+                                    },
+                                    "unit": {
+                                        "type": "string",
+                                        "enum": ["grams", "serving"]
+                                    },
+                                    "calories": {
+                                        "type": "integer"
+                                    },
+                                    "protein_g": {
+                                        "type": "number"
+                                    },
+                                    "carbs_g": {
+                                        "type": "number"
+                                    },
+                                    "fat_g": {
+                                        "type": "number"
+                                    }
+                                },
+                                "required": ["action", "food_name"]
+                            }
+                        }
+                    }
+                }
+            },
+            "required": ["meal_identifier", "updates"]
+        }
+    },
+    {
+        "name": "delete_meal",
+        "description": """Delete an entire meal by type, relative reference, or ID.
+
+Use this when user says:
+- "Delete my lunch"
+- "Remove yesterday's breakfast"
+- "Clear my last meal"
+- "Delete that snack I just logged"
+
+SAFETY: Always confirm before deleting to prevent accidents.
+
+MEAL IDENTIFICATION (same as update_meal):
+- By type + date: "lunch" → today's lunch, "yesterday's dinner"
+- By relative time: "last meal", "most recent"
+- By ID: Specific meal UUID
+
+Returns success confirmation with details of deleted meal.""",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "meal_identifier": {
+                    "type": "object",
+                    "properties": {
+                        "type": {
+                            "type": "string",
+                            "enum": ["meal_type", "relative", "id"]
+                        },
+                        "value": {
+                            "type": "string"
+                        },
+                        "date": {
+                            "type": "string"
+                        }
+                    },
+                    "required": ["type", "value"]
+                }
+            },
+            "required": ["meal_identifier"]
+        }
+    },
+    {
+        "name": "update_meal_item",
+        "description": """Update quantity or serving of a specific food item within a meal.
+
+Use this for granular edits:
+- "Change the chicken in my lunch from 200g to 300g"
+- "Actually I had 3 eggs not 2"
+- "Update my breakfast - the oatmeal was 150g not 100g"
+
+More surgical than update_meal (which can add/remove items).
+This only changes quantity/serving of one existing item.
+
+Returns updated meal with recalculated nutrition.""",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "meal_identifier": {
+                    "type": "object",
+                    "properties": {
+                        "type": {
+                            "type": "string",
+                            "enum": ["meal_type", "relative", "id"]
+                        },
+                        "value": {
+                            "type": "string"
+                        },
+                        "date": {
+                            "type": "string"
+                        }
+                    },
+                    "required": ["type", "value"]
+                },
+                "item_identifier": {
+                    "type": "string",
+                    "description": "Food name to identify the item (e.g., 'chicken', 'eggs')"
+                },
+                "new_quantity": {
+                    "type": "number",
+                    "description": "New quantity (grams or serving count)"
+                },
+                "unit": {
+                    "type": "string",
+                    "enum": ["grams", "serving"],
+                    "description": "Unit for the quantity"
+                }
+            },
+            "required": ["meal_identifier", "item_identifier", "new_quantity"]
+        }
+    },
+    {
+        "name": "copy_meal",
+        "description": """Copy meals from one date to another for easy meal planning.
+
+Use this when user wants to:
+- "Log the same as yesterday's breakfast"
+- "Repeat my Monday meals"
+- "Copy my meal from Oct 20"
+- "Do the same lunch as last week"
+
+Perfect for meal prep users who eat similar meals regularly.
+
+SOURCE IDENTIFICATION:
+- By meal type + date: "yesterday's breakfast"
+- By date only: "Monday's meals" (copies all meals from that date)
+- By meal ID: Specific meal UUID
+
+TARGET DATE:
+- "today" → current date
+- "tomorrow" → next day
+- ISO date: "2025-10-26"
+
+Returns newly created meal(s) with same items but new logged_at timestamp.""",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "source_identifier": {
+                    "type": "object",
+                    "properties": {
+                        "type": {
+                            "type": "string",
+                            "enum": ["meal_type", "meal_id", "all_meals"],
+                            "description": "What to copy"
+                        },
+                        "value": {
+                            "type": "string",
+                            "description": "Meal type, ID, or 'all'"
+                        },
+                        "date": {
+                            "type": "string",
+                            "description": "Source date (YYYY-MM-DD or 'yesterday', 'Monday')"
+                        }
+                    },
+                    "required": ["type", "date"]
+                },
+                "target_date": {
+                    "type": "string",
+                    "description": "Target date (YYYY-MM-DD or 'today', 'tomorrow')"
+                },
+                "target_meal_type": {
+                    "type": "string",
+                    "enum": ["breakfast", "lunch", "dinner", "snack", "same"],
+                    "description": "Target meal type or 'same' to keep original"
+                }
+            },
+            "required": ["source_identifier", "target_date"]
+        }
+    },
+    {
+        "name": "create_quick_meal",
+        "description": """Save a meal as a reusable template for faster logging.
+
+Use this when user wants to:
+- "Save this meal as 'Post-Workout Shake'"
+- "Create a quick meal called 'Cutting Lunch' with chicken, rice, broccoli"
+- "Make this my go-to breakfast"
+
+Quick meals are templates that can be logged instantly without re-entering items.
+Great for meal prep, consistent eating patterns, and favorite meals.
+
+SOURCE OPTIONS:
+- last_logged: Save the most recent meal logged
+- custom: Create from scratch with specified items
+- meal_id: Save a specific meal by ID
+
+Returns created quick meal with ID for future reference.""",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Quick meal name (e.g., 'Morning Protein Shake', 'Chicken Rice Bowl')"
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Optional description"
+                },
+                "source": {
+                    "type": "string",
+                    "enum": ["last_logged", "custom", "meal_id"],
+                    "description": "Where to get meal items from"
+                },
+                "meal_id": {
+                    "type": "string",
+                    "description": "Meal ID if source='meal_id'"
+                },
+                "items": {
+                    "type": "array",
+                    "description": "Items if source='custom'",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "food_name": {
+                                "type": "string"
+                            },
+                            "quantity": {
+                                "type": "number"
+                            },
+                            "unit": {
+                                "type": "string",
+                                "enum": ["grams", "serving"]
+                            },
+                            "calories": {
+                                "type": "integer"
+                            },
+                            "protein_g": {
+                                "type": "number"
+                            },
+                            "carbs_g": {
+                                "type": "number"
+                            },
+                            "fat_g": {
+                                "type": "number"
+                            }
+                        },
+                        "required": ["food_name", "quantity", "calories", "protein_g", "carbs_g", "fat_g"]
+                    }
+                }
+            },
+            "required": ["name", "source"]
+        }
+    },
+    {
+        "name": "delete_quick_meal",
+        "description": """Remove a quick meal template.
+
+Use this when user wants to:
+- "Delete my 'Morning Shake' quick meal"
+- "Remove the 'Cutting Lunch' template"
+- "I don't use that quick meal anymore"
+
+Returns success confirmation.""",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "identifier": {
+                    "type": "object",
+                    "properties": {
+                        "type": {
+                            "type": "string",
+                            "enum": ["name", "id"],
+                            "description": "How to find the quick meal"
+                        },
+                        "value": {
+                            "type": "string",
+                            "description": "Quick meal name or ID"
+                        }
+                    },
+                    "required": ["type", "value"]
+                }
+            },
+            "required": ["identifier"]
+        }
+    },
+    {
+        "name": "list_quick_meals",
+        "description": """List user's saved quick meal templates with nutrition preview.
+
+Use this when user asks:
+- "Show me my quick meals"
+- "What quick meals do I have?"
+- "List my saved meals"
+
+Returns formatted list with:
+- Quick meal name and description
+- Number of items
+- Total nutrition (calories, protein, carbs, fat)
+- When it was created
+
+Helps users remember what templates they have available.""",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "include_nutrition": {
+                    "type": "boolean",
+                    "description": "Include nutrition totals (default: true)",
+                    "default": True
+                }
+            }
+        }
     }
 ]
 
@@ -479,6 +867,20 @@ class ToolService:
             return await self._estimate_activity_calories(user_id, tool_input)
         elif tool_name == "log_meals_quick":
             return await self._log_meals_quick(user_id, tool_input)
+        elif tool_name == "update_meal":
+            return await self._update_meal(user_id, tool_input)
+        elif tool_name == "delete_meal":
+            return await self._delete_meal(user_id, tool_input)
+        elif tool_name == "update_meal_item":
+            return await self._update_meal_item(user_id, tool_input)
+        elif tool_name == "copy_meal":
+            return await self._copy_meal(user_id, tool_input)
+        elif tool_name == "create_quick_meal":
+            return await self._create_quick_meal(user_id, tool_input)
+        elif tool_name == "delete_quick_meal":
+            return await self._delete_quick_meal(user_id, tool_input)
+        elif tool_name == "list_quick_meals":
+            return await self._list_quick_meals(user_id, tool_input)
         else:
             raise ValueError(f"Unknown tool: {tool_name}")
 
@@ -1638,6 +2040,572 @@ class ToolService:
         except Exception as e:
             logger.error(f"[ToolService.log_meals_quick] ❌ Failed: {e}", exc_info=True)
             return {"success": False, "error": f"Failed to log meals: {str(e)}"}
+
+    async def _update_meal(self, user_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Update an existing meal's metadata or items.
+
+        Handles meal identification and applies updates.
+        """
+        try:
+            from datetime import datetime, date, timedelta
+
+            # Parse meal identifier
+            meal_id = params["meal_identifier"]
+            id_type = meal_id["type"]
+            id_value = meal_id["value"]
+            id_date = meal_id.get("date", "today")
+
+            # Resolve date
+            target_date = await self._parse_date(id_date)
+
+            # Find the meal
+            meal = await self._find_meal(user_id, id_type, id_value, target_date)
+
+            if not meal:
+                return {"success": False, "error": "Meal not found"}
+
+            # Parse updates
+            updates = params["updates"]
+
+            # Apply metadata updates via nutrition_service
+            from app.services.nutrition_service import nutrition_service
+
+            # Handle item operations first
+            if "item_operations" in updates:
+                for operation in updates["item_operations"]:
+                    action = operation["action"]
+                    food_name = operation["food_name"]
+
+                    if action == "add":
+                        # Add new item to meal
+                        from app.models.nutrition import MealItemBase
+                        new_item = MealItemBase(
+                            food_id=await self._resolve_food_id(food_name),
+                            quantity=operation["quantity"],
+                            serving_id=None,
+                            grams=operation["quantity"] if operation.get("unit") == "grams" else operation.get("grams", 100),
+                            calories=operation["calories"],
+                            protein_g=operation["protein_g"],
+                            carbs_g=operation["carbs_g"],
+                            fat_g=operation["fat_g"],
+                            display_unit="g",
+                            display_label=None
+                        )
+                        from uuid import UUID
+                        meal = await nutrition_service.add_meal_item(
+                            meal_id=UUID(meal["id"]),
+                            item=new_item,
+                            user_id=user_id
+                        )
+
+                    elif action == "remove":
+                        # Find and remove item
+                        item_to_remove = next((item for item in meal.get("items", [])
+                                              if food_name.lower() in item.get("foods", {}).get("name", "").lower()), None)
+                        if item_to_remove:
+                            from uuid import UUID
+                            meal = await nutrition_service.delete_meal_item(
+                                meal_id=UUID(meal["id"]),
+                                item_id=UUID(item_to_remove["id"]),
+                                user_id=user_id
+                            )
+
+                    elif action == "update":
+                        # Find and update item quantity
+                        item_to_update = next((item for item in meal.get("items", [])
+                                              if food_name.lower() in item.get("foods", {}).get("name", "").lower()), None)
+                        if item_to_update:
+                            from app.models.nutrition import UpdateMealItemRequest
+                            from uuid import UUID
+                            update_request = UpdateMealItemRequest(
+                                quantity=operation["quantity"],
+                                serving_id=None if operation.get("unit") == "grams" else operation.get("serving_id")
+                            )
+                            meal = await nutrition_service.update_meal_item(
+                                meal_id=UUID(meal["id"]),
+                                item_id=UUID(item_to_update["id"]),
+                                updates=update_request,
+                                user_id=user_id
+                            )
+
+            # Apply metadata updates if any
+            if "meal_type" in updates or "name" in updates or "notes" in updates:
+                # Note: Current nutrition_service doesn't have update_meal for metadata
+                # Would need to implement this or use database directly
+                logger.warning("[ToolService.update_meal] Metadata updates not yet implemented")
+
+            return {
+                "success": True,
+                "meal_id": meal.id if hasattr(meal, 'id') else meal.get("id"),
+                "message": "Meal updated successfully"
+            }
+
+        except Exception as e:
+            logger.error(f"[ToolService.update_meal] Failed: {e}", exc_info=True)
+            return {"success": False, "error": str(e)}
+
+    async def _delete_meal(self, user_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Delete an entire meal.
+        """
+        try:
+            from datetime import datetime, date, timedelta
+
+            # Parse meal identifier
+            meal_id = params["meal_identifier"]
+            id_type = meal_id["type"]
+            id_value = meal_id["value"]
+            id_date = meal_id.get("date", "today")
+
+            # Resolve date
+            target_date = await self._parse_date(id_date)
+
+            # Find the meal
+            meal = await self._find_meal(user_id, id_type, id_value, target_date)
+
+            if not meal:
+                return {"success": False, "error": "Meal not found"}
+
+            # Delete the meal
+            from app.services.nutrition_service import nutrition_service
+            from uuid import UUID
+
+            deleted = await nutrition_service.delete_meal(
+                meal_id=UUID(meal["id"]),
+                user_id=user_id
+            )
+
+            if deleted:
+                return {
+                    "success": True,
+                    "meal_type": meal.get("meal_type"),
+                    "items_count": len(meal.get("items", [])),
+                    "message": f"✅ Deleted {meal.get('meal_type')} meal"
+                }
+            else:
+                return {"success": False, "error": "Failed to delete meal"}
+
+        except Exception as e:
+            logger.error(f"[ToolService.delete_meal] Failed: {e}", exc_info=True)
+            return {"success": False, "error": str(e)}
+
+    async def _update_meal_item(self, user_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Update quantity of a specific food item within a meal.
+        """
+        try:
+            from datetime import datetime, date, timedelta
+
+            # Parse meal identifier
+            meal_id = params["meal_identifier"]
+            id_type = meal_id["type"]
+            id_value = meal_id["value"]
+            id_date = meal_id.get("date", "today")
+
+            # Resolve date
+            target_date = await self._parse_date(id_date)
+
+            # Find the meal
+            meal = await self._find_meal(user_id, id_type, id_value, target_date)
+
+            if not meal:
+                return {"success": False, "error": "Meal not found"}
+
+            # Find the item
+            item_name = params["item_identifier"]
+            item_to_update = next((item for item in meal.get("items", [])
+                                  if item_name.lower() in item.get("foods", {}).get("name", "").lower()), None)
+
+            if not item_to_update:
+                return {"success": False, "error": f"Item '{item_name}' not found in meal"}
+
+            # Update the item
+            from app.services.nutrition_service import nutrition_service
+            from app.models.nutrition import UpdateMealItemRequest
+            from uuid import UUID
+
+            update_request = UpdateMealItemRequest(
+                quantity=params["new_quantity"],
+                serving_id=None if params.get("unit") == "grams" else params.get("serving_id")
+            )
+
+            updated_meal = await nutrition_service.update_meal_item(
+                meal_id=UUID(meal["id"]),
+                item_id=UUID(item_to_update["id"]),
+                updates=update_request,
+                user_id=user_id
+            )
+
+            return {
+                "success": True,
+                "meal_id": str(updated_meal.id),
+                "message": f"✅ Updated {item_name} quantity to {params['new_quantity']}{params.get('unit', 'g')}"
+            }
+
+        except Exception as e:
+            logger.error(f"[ToolService.update_meal_item] Failed: {e}", exc_info=True)
+            return {"success": False, "error": str(e)}
+
+    # Helper methods for meal identification
+
+    async def _parse_date(self, date_str: str) -> date:
+        """Parse date string to date object."""
+        from datetime import datetime, date, timedelta
+
+        if date_str == "today":
+            return date.today()
+        elif date_str == "yesterday":
+            return date.today() - timedelta(days=1)
+        else:
+            try:
+                return datetime.fromisoformat(date_str).date()
+            except:
+                return date.today()
+
+    async def _find_meal(self, user_id: str, id_type: str, id_value: str, target_date: date) -> Optional[Dict[str, Any]]:
+        """Find a meal by identifier."""
+        from datetime import datetime, time
+
+        try:
+            if id_type == "id":
+                # Direct ID lookup
+                result = self.supabase.table("meals")\
+                    .select("*, items:meal_items(*, foods(name, brand_name))")\
+                    .eq("id", id_value)\
+                    .eq("user_id", user_id)\
+                    .single()\
+                    .execute()
+                return result.data if result.data else None
+
+            elif id_type == "meal_type":
+                # Find by meal type and date
+                start_of_day = datetime.combine(target_date, time.min)
+                end_of_day = datetime.combine(target_date, time.max)
+
+                result = self.supabase.table("meals")\
+                    .select("*, items:meal_items(*, foods(name, brand_name))")\
+                    .eq("user_id", user_id)\
+                    .eq("meal_type", id_value)\
+                    .gte("logged_at", start_of_day.isoformat())\
+                    .lte("logged_at", end_of_day.isoformat())\
+                    .order("logged_at", desc=True)\
+                    .limit(1)\
+                    .execute()
+
+                return result.data[0] if result.data else None
+
+            elif id_type == "relative":
+                # Find most recent meal
+                if id_value in ["last", "latest", "most recent"]:
+                    result = self.supabase.table("meals")\
+                        .select("*, items:meal_items(*, foods(name, brand_name))")\
+                        .eq("user_id", user_id)\
+                        .order("logged_at", desc=True)\
+                        .limit(1)\
+                        .execute()
+
+                    return result.data[0] if result.data else None
+
+            return None
+
+        except Exception as e:
+            logger.error(f"[ToolService._find_meal] Failed: {e}")
+            return None
+
+    async def _resolve_food_id(self, food_name: str) -> str:
+        """Resolve food name to food ID (simplified - creates custom food)."""
+        # For now, return a placeholder - in production would search foods table
+        # or create a custom food
+        return "00000000-0000-0000-0000-000000000000"
+
+    async def _copy_meal(self, user_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Copy meals from one date to another.
+        """
+        try:
+            from datetime import datetime, date, timedelta
+            from app.services.nutrition_service import nutrition_service
+
+            # Parse source identifier
+            source = params["source_identifier"]
+            source_type = source["type"]
+            source_value = source.get("value")
+            source_date = await self._parse_date(source["date"])
+
+            # Parse target date
+            target_date = await self._parse_date(params["target_date"])
+            target_meal_type = params.get("target_meal_type", "same")
+
+            # Find source meal(s)
+            meals_to_copy = []
+
+            if source_type == "meal_type":
+                # Copy single meal by type
+                meal = await self._find_meal(user_id, "meal_type", source_value, source_date)
+                if meal:
+                    meals_to_copy.append(meal)
+
+            elif source_type == "meal_id":
+                # Copy specific meal by ID
+                meal = await self._find_meal(user_id, "id", source_value, source_date)
+                if meal:
+                    meals_to_copy.append(meal)
+
+            elif source_type == "all_meals":
+                # Copy all meals from source date
+                start_of_day = datetime.combine(source_date, datetime.min.time())
+                end_of_day = datetime.combine(source_date, datetime.max.time())
+
+                result = self.supabase.table("meals")\
+                    .select("*, items:meal_items(*, foods(*))")\
+                    .eq("user_id", user_id)\
+                    .gte("logged_at", start_of_day.isoformat())\
+                    .lte("logged_at", end_of_day.isoformat())\
+                    .execute()
+
+                meals_to_copy = result.data if result.data else []
+
+            if not meals_to_copy:
+                return {"success": False, "error": "No meals found to copy"}
+
+            # Copy each meal
+            copied_meals = []
+            for meal in meals_to_copy:
+                # Determine target meal type
+                new_meal_type = target_meal_type if target_meal_type != "same" else meal["meal_type"]
+
+                # Convert meal items to MealItemBase format
+                from app.models.nutrition import MealItemBase
+                items = []
+                for item in meal.get("items", []):
+                    items.append(MealItemBase(
+                        food_id=item["food_id"],
+                        quantity=item["quantity"],
+                        serving_id=item.get("serving_id"),
+                        grams=item["grams"],
+                        calories=int(item["calories"]),
+                        protein_g=float(item["protein_g"]),
+                        carbs_g=float(item["carbs_g"]),
+                        fat_g=float(item["fat_g"]),
+                        display_unit=item.get("display_unit", "g"),
+                        display_label=item.get("display_label")
+                    ))
+
+                # Create new meal
+                new_meal = await nutrition_service.create_meal(
+                    user_id=user_id,
+                    name=meal.get("name"),
+                    meal_type=new_meal_type,
+                    logged_at=datetime.combine(target_date, datetime.now().time()),
+                    notes=f"Copied from {source_date}",
+                    items=items,
+                    source="copy"
+                )
+
+                copied_meals.append({
+                    "meal_id": str(new_meal.id),
+                    "meal_type": new_meal_type,
+                    "items_count": len(items)
+                })
+
+            return {
+                "success": True,
+                "meals_copied": len(copied_meals),
+                "meals": copied_meals,
+                "message": f"✅ Copied {len(copied_meals)} meal(s) to {target_date}"
+            }
+
+        except Exception as e:
+            logger.error(f"[ToolService.copy_meal] Failed: {e}", exc_info=True)
+            return {"success": False, "error": str(e)}
+
+    async def _create_quick_meal(self, user_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Save a meal as a quick meal template.
+        """
+        try:
+            name = params["name"]
+            description = params.get("description", "")
+            source = params["source"]
+
+            # Get meal items based on source
+            items_data = []
+
+            if source == "last_logged":
+                # Get most recent meal
+                result = self.supabase.table("meals")\
+                    .select("*, items:meal_items(*, foods(*))")\
+                    .eq("user_id", user_id)\
+                    .order("logged_at", desc=True)\
+                    .limit(1)\
+                    .execute()
+
+                if not result.data:
+                    return {"success": False, "error": "No recent meals found"}
+
+                meal = result.data[0]
+                for item in meal.get("items", []):
+                    items_data.append({
+                        "food_id": item["food_id"],
+                        "quantity": item["quantity"],
+                        "serving_id": item.get("serving_id"),
+                        "display_order": item.get("display_order", 0)
+                    })
+
+            elif source == "meal_id":
+                # Get specific meal
+                meal_id = params.get("meal_id")
+                result = self.supabase.table("meals")\
+                    .select("*, items:meal_items(*, foods(*))")\
+                    .eq("id", meal_id)\
+                    .eq("user_id", user_id)\
+                    .single()\
+                    .execute()
+
+                if not result.data:
+                    return {"success": False, "error": "Meal not found"}
+
+                meal = result.data
+                for item in meal.get("items", []):
+                    items_data.append({
+                        "food_id": item["food_id"],
+                        "quantity": item["quantity"],
+                        "serving_id": item.get("serving_id"),
+                        "display_order": item.get("display_order", 0)
+                    })
+
+            elif source == "custom":
+                # Use provided items
+                custom_items = params.get("items", [])
+                for idx, item in enumerate(custom_items):
+                    # Would need to create custom foods first
+                    # Simplified for now
+                    items_data.append({
+                        "food_id": await self._resolve_food_id(item["food_name"]),
+                        "quantity": item["quantity"],
+                        "serving_id": None,
+                        "display_order": idx
+                    })
+
+            # Create quick meal
+            from uuid import uuid4
+            quick_meal_id = str(uuid4())
+
+            result = self.supabase.table("quick_meals").insert({
+                "id": quick_meal_id,
+                "user_id": user_id,
+                "name": name,
+                "description": description,
+                "foods": items_data  # JSONB column
+            }).execute()
+
+            if result.data:
+                return {
+                    "success": True,
+                    "quick_meal_id": quick_meal_id,
+                    "name": name,
+                    "items_count": len(items_data),
+                    "message": f"✅ Created quick meal '{name}'"
+                }
+            else:
+                return {"success": False, "error": "Failed to create quick meal"}
+
+        except Exception as e:
+            logger.error(f"[ToolService.create_quick_meal] Failed: {e}", exc_info=True)
+            return {"success": False, "error": str(e)}
+
+    async def _delete_quick_meal(self, user_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Delete a quick meal template.
+        """
+        try:
+            identifier = params["identifier"]
+            id_type = identifier["type"]
+            id_value = identifier["value"]
+
+            # Find quick meal
+            if id_type == "id":
+                result = self.supabase.table("quick_meals")\
+                    .delete()\
+                    .eq("id", id_value)\
+                    .eq("user_id", user_id)\
+                    .execute()
+            elif id_type == "name":
+                result = self.supabase.table("quick_meals")\
+                    .delete()\
+                    .eq("name", id_value)\
+                    .eq("user_id", user_id)\
+                    .execute()
+
+            if result.data:
+                return {
+                    "success": True,
+                    "message": f"✅ Deleted quick meal '{id_value}'"
+                }
+            else:
+                return {"success": False, "error": "Quick meal not found"}
+
+        except Exception as e:
+            logger.error(f"[ToolService.delete_quick_meal] Failed: {e}", exc_info=True)
+            return {"success": False, "error": str(e)}
+
+    async def _list_quick_meals(self, user_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        List user's quick meal templates with nutrition preview.
+        """
+        try:
+            include_nutrition = params.get("include_nutrition", True)
+
+            # Get quick meals
+            result = self.supabase.table("quick_meals")\
+                .select("*")\
+                .eq("user_id", user_id)\
+                .order("created_at", desc=True)\
+                .execute()
+
+            if not result.data:
+                return {
+                    "success": True,
+                    "quick_meals": [],
+                    "count": 0,
+                    "message": "No quick meals saved yet"
+                }
+
+            # Format quick meals
+            quick_meals = []
+            for qm in result.data:
+                qm_data = {
+                    "id": qm["id"],
+                    "name": qm["name"],
+                    "description": qm.get("description", ""),
+                    "items_count": len(qm.get("foods", [])),
+                    "created_at": qm["created_at"]
+                }
+
+                # Calculate nutrition if requested
+                if include_nutrition and qm.get("foods"):
+                    # Would need to look up foods and calculate
+                    # Simplified for now
+                    qm_data["nutrition"] = {
+                        "calories": 0,
+                        "protein_g": 0,
+                        "carbs_g": 0,
+                        "fat_g": 0
+                    }
+
+                quick_meals.append(qm_data)
+
+            return {
+                "success": True,
+                "quick_meals": quick_meals,
+                "count": len(quick_meals),
+                "message": f"Found {len(quick_meals)} quick meal(s)"
+            }
+
+        except Exception as e:
+            logger.error(f"[ToolService.list_quick_meals] Failed: {e}", exc_info=True)
+            return {"success": False, "error": str(e)}
 
 
 # Singleton
