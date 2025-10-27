@@ -22,7 +22,7 @@ router = APIRouter()
 # ========================================================================
 
 class StartConsultationRequest(BaseModel):
-    consultation_key: str
+    consultation_key: Optional[str] = None  # Now optional - free for all users
 
 
 class SendMessageRequest(BaseModel):
@@ -37,8 +37,8 @@ class SendMessageRequest(BaseModel):
 @router.post(
     "/consultation/start",
     status_code=status.HTTP_200_OK,
-    summary="Start AI consultation session",
-    description="Start a new consultation session with a consultation key"
+    summary="Start AI consultation session (GATED)",
+    description="Start consultation session. Requires consultation_enabled=true on user profile."
 )
 async def start_consultation(
     request_data: StartConsultationRequest,
@@ -48,17 +48,54 @@ async def start_consultation(
     """
     Start a new AI-powered consultation session.
 
-    Requires a valid consultation key. The key is validated and redeemed,
-    then a conversation session is created.
+    ACCESS CONTROL: User must have consultation_enabled=true in their profile.
+    This is manually set by admins in Supabase.
 
     Args:
-        consultation_key: One-time use consultation key
+        consultation_key: Optional consultation key (legacy support)
         user: Current authenticated user
 
     Returns:
         session_id, initial message, and progress info
+
+    Raises:
+        403 Forbidden: If user doesn't have consultation access
     """
     try:
+        # STEP 1: Check if user has consultation access
+        from app.services.supabase_service import SupabaseService
+        db = SupabaseService()
+
+        profile_result = db.client.table("profiles")\
+            .select("consultation_enabled")\
+            .eq("id", user["id"])\
+            .single()\
+            .execute()
+
+        if not profile_result.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User profile not found"
+            )
+
+        consultation_enabled = profile_result.data.get("consultation_enabled", False)
+
+        if not consultation_enabled:
+            logger.warning(
+                "consultation_access_denied",
+                user_id=user["id"][:8],
+                reason="consultation_enabled=false"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Consultation access not enabled for this account. Please contact support."
+            )
+
+        logger.info(
+            "consultation_access_granted",
+            user_id=user["id"][:8]
+        )
+
         # Get client info
         ip_address = request.client.host if request.client else None
         user_agent = request.headers.get("user-agent")
@@ -229,6 +266,123 @@ async def complete_consultation(
             user_id=user["id"],
             session_id=session_id
         )
+
+        # ================================================================
+        # GENERATE CONVERSATIONAL PROFILE & PERSONALIZED SYSTEM PROMPT
+        # ================================================================
+        # NOTE: This takes 5-10 seconds for two Claude API calls:
+        #   1. Generate conversational_profile (200 words) - ~3 seconds
+        #   2. Generate initial system prompt (500-800 words) - ~5 seconds
+        #
+        # RACE CONDITION MITIGATION:
+        # If user starts coaching immediately after this, they might hit the
+        # coach before prompt is saved. The coach gracefully falls back to
+        # generic prompt in this case.
+        #
+        # RECOMMENDATION: Frontend should show "Generating your personalized
+        # coach... (10 seconds)" loading state before enabling chat.
+        # ================================================================
+        try:
+            from app.services.consultation_ai_service import ConsultationAIService
+            from app.services.system_prompt_generator import get_system_prompt_generator
+
+            consultation_service = ConsultationAIService()
+
+            # Step 1: Generate conversational_profile from consultation messages
+            logger.info(
+                "generating_conversational_profile",
+                user_id=user["id"],
+                session_id=session_id
+            )
+
+            conversational_profile = await consultation_service.generate_conversational_profile(
+                session_id=session_id,
+                user_id=user["id"]
+            )
+
+            logger.info(
+                "conversational_profile_generated",
+                user_id=user["id"][:8],
+                profile_words=len(conversational_profile.split())
+            )
+
+            # Step 2: Fetch user data for prompt generation
+            profile_result = db.client.table("profiles")\
+                .select("*")\
+                .eq("id", user["id"])\
+                .single()\
+                .execute()
+
+            if not profile_result.data:
+                raise Exception("User profile not found")
+
+            profile_data = profile_result.data
+
+            # Step 3: Generate initial personalized system prompt
+            logger.info(
+                "generating_initial_system_prompt",
+                user_id=user["id"][:8]
+            )
+
+            prompt_generator = get_system_prompt_generator()
+
+            onboarding_data = {
+                "age": profile_data.get("age", 30),
+                "biological_sex": profile_data.get("biological_sex", "male"),
+                "current_weight_kg": profile_data.get("current_weight_kg", 75.0),
+                "goal_weight_kg": profile_data.get("goal_weight_kg", 70.0),
+                "height_cm": profile_data.get("height_cm", 175.0),
+                "activity_level": profile_data.get("activity_level", "moderate")
+            }
+
+            user_goals = {
+                "primary_goal": profile_data.get("primary_goal", "maintain"),
+                "experience_level": profile_data.get("experience_level", "beginner"),
+                "daily_calories": profile_data.get("daily_calories", 2000),
+                "protein_g": profile_data.get("protein_g", 150)
+            }
+
+            initial_prompt = await prompt_generator.generate_initial_prompt(
+                conversational_profile=conversational_profile,
+                onboarding_data=onboarding_data,
+                user_goals=user_goals
+            )
+
+            logger.info(
+                "initial_system_prompt_generated",
+                user_id=user["id"][:8],
+                prompt_length=len(initial_prompt)
+            )
+
+            # Step 4: Save conversational_profile and system prompt to profiles
+            db.client.table("profiles")\
+                .update({
+                    "conversational_profile": conversational_profile,
+                    "coaching_system_prompt": initial_prompt,
+                    "system_prompt_version": 1,
+                    "last_prompt_update": datetime.utcnow().isoformat()
+                })\
+                .eq("id", user["id"])\
+                .execute()
+
+            logger.info(
+                "personalized_coaching_ready",
+                user_id=user["id"][:8],
+                has_profile=True,
+                has_prompt=True,
+                prompt_version=1
+            )
+
+        except Exception as profile_error:
+            # Log but don't fail consultation completion
+            logger.error(
+                "personalized_prompt_generation_failed",
+                user_id=user["id"],
+                session_id=session_id,
+                error=str(profile_error),
+                exc_info=True
+            )
+            # Continue to program generation even if this fails
 
         # ================================================================
         # AUTO-GENERATE PROGRAM FROM CONSULTATION DATA
