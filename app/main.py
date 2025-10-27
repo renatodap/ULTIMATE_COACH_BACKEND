@@ -112,21 +112,51 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             logger.warning("sentry_initialization_failed", error=str(e))
             # Continue without Sentry - don't break the app
 
-    # Start background jobs (daily adjustments, reassessments, etc.)
-    # TODO: Re-enable when background_jobs module is committed
+    # Initialize personalized coaching services
+    try:
+        from app.services.supabase_service import SupabaseService
+        from app.services.system_prompt_generator import init_system_prompt_generator
+        from app.services.behavioral_tracker import init_behavioral_tracker
+        from anthropic import Anthropic
+
+        supabase = SupabaseService()
+        anthropic_client = Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+
+        # Initialize system prompt generator
+        init_system_prompt_generator(
+            supabase_client=supabase.client,
+            anthropic_client=anthropic_client
+        )
+
+        # Initialize behavioral tracker
+        init_behavioral_tracker(supabase_client=supabase.client)
+
+        logger.info(
+            "personalized_coaching_services_initialized",
+            services=["system_prompt_generator", "behavioral_tracker"]
+        )
+
+    except Exception as e:
+        logger.error(
+            "personalized_coaching_init_failed",
+            error=str(e),
+            exc_info=True
+        )
+        # Continue without personalized coaching - fall back to generic prompts
+
+    # Start background jobs (daily adjustments, reassessments, prompt updates, etc.)
     # Only in production or if explicitly enabled
-    # if not settings.is_development or settings.ENABLE_BACKGROUND_JOBS:
-    #     try:
-    #         from app.services.background_jobs import background_jobs_service
-    #
-    #         background_jobs_service.start()
-    #         logger.info("background_jobs_started")
-    #     except Exception as e:
-    #         logger.error("background_jobs_startup_failed", error=str(e), exc_info=True)
-    #         # Continue without background jobs - don't break the app
-    # else:
-    #     logger.info("background_jobs_disabled", reason="development mode")
-    logger.info("background_jobs_disabled", reason="module not yet committed")
+    if not settings.is_development or getattr(settings, 'ENABLE_BACKGROUND_JOBS', False):
+        try:
+            from app.services.background_jobs import background_jobs_service
+
+            background_jobs_service.start()
+            logger.info("background_jobs_started")
+        except Exception as e:
+            logger.error("background_jobs_startup_failed", error=str(e), exc_info=True)
+            # Continue without background jobs - don't break the app
+    else:
+        logger.info("background_jobs_disabled", reason="development mode")
 
     yield
 
@@ -134,13 +164,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("application_shutdown")
 
     # Shutdown background jobs
-    # TODO: Re-enable when background_jobs module is committed
-    # try:
-    #     from app.services.background_jobs import background_jobs_service
-    #     background_jobs_service.shutdown()
-    #     logger.info("background_jobs_stopped")
-    # except Exception as e:
-    #     logger.warning("background_jobs_shutdown_failed", error=str(e))
+    try:
+        from app.services.background_jobs import background_jobs_service
+        background_jobs_service.shutdown()
+        logger.info("background_jobs_stopped")
+    except Exception as e:
+        logger.warning("background_jobs_shutdown_failed", error=str(e))
 
 
 # Create FastAPI app
@@ -390,15 +419,15 @@ async def root():
 # ========================================================================
 
 # Import only essential routers
-from app.api.v1 import health, auth, users, onboarding, foods, coach, meals
+from app.api.v1 import health, auth, users, foods, coach, meals, consultation
 
 app.include_router(health.router, prefix="/api/v1", tags=["Health"])
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentication"])
 app.include_router(users.router, prefix="/api/v1/users", tags=["Users"])
-app.include_router(onboarding.router, prefix="/api/v1/onboarding", tags=["Onboarding"])
 app.include_router(foods.router, prefix="/api/v1", tags=["Nutrition - Foods"])
-app.include_router(meals.router, prefix="/api/v1", tags=["Nutrition - Meals"])  # Re-enabled for coach tools
+app.include_router(meals.router, prefix="/api/v1", tags=["Nutrition - Meals"])
 app.include_router(coach.router, prefix="/api/v1", tags=["AI Coach"])
+app.include_router(consultation.router, prefix="/api/v1", tags=["Consultation AI"])
 
 # ========================================================================
 # DISABLED FOR WEEK 1 MVP - Re-enabling incrementally
@@ -425,11 +454,11 @@ app.include_router(coach.router, prefix="/api/v1", tags=["AI Coach"])
 # app.include_router(planlogs_router, prefix="/api/v1/planlogs", tags=["Plan Logs"])
 
 # ========================================================================
-# CONSULTATION AI - DISABLED FOR MVP
+# CONSULTATION AI - NOW ENABLED (FREE FOR ALL USERS)
 # ========================================================================
-# The Consultation AI is a premium onboarding feature with 15 tools for
-# structured data collection. Will be re-enabled in Week 4 as core onboarding.
-# app.include_router(consultation.router, prefix="/api/v1", tags=["Consultation"])
+# The Consultation AI is now part of core onboarding flow.
+# Previously premium, now FREE for all users after signup.
+# Generates conversational_profile for personalized system prompts.
 # ========================================================================
 
 
