@@ -1496,7 +1496,17 @@ IMPORTANT:
                 # Get conversation history to return
                 messages = await self._get_conversation_history(session_id)
 
-                # Return last assistant message as initial message
+                # Format messages for frontend
+                conversation_history = [
+                    {
+                        "role": msg["role"],
+                        "content": msg["content"],
+                        "timestamp": msg.get("created_at")
+                    }
+                    for msg in messages
+                ]
+
+                # Get last assistant message as the "message" field for compatibility
                 initial_message = "Welcome back! Let's continue where we left off."
                 for msg in reversed(messages):
                     if msg["role"] == "assistant":
@@ -1522,6 +1532,7 @@ IMPORTANT:
                     "success": True,
                     "session_id": session_id,
                     "message": initial_message,
+                    "conversation_history": conversation_history,  # Full history for resuming
                     "current_section": current_section,
                     "sections_completed": sections_completed,
                     "total_sections": len(sections),
