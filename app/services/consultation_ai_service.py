@@ -185,22 +185,41 @@ class ConsultationAIService:
             section_complete = self._is_section_complete(current_section, extracted_items)
             if section_complete:
                 next_section = self._get_next_section(current_section)
-                progress = self._calculate_progress(next_section)
+                progress_percentage = self._calculate_progress(next_section)
                 await self._update_session(
                     session_id,
                     current_section=next_section,
-                    progress_percentage=progress
+                    progress_percentage=progress_percentage
                 )
+                current_section = next_section  # Update to new section
             else:
-                progress = session.get("progress_percentage", 0)
+                progress_percentage = session.get("progress_percentage", 0)
+
+            # Calculate sections completed and total
+            sections = [
+                "training_modalities",
+                "exercise_familiarity",
+                "training_schedule",
+                "meal_timing",
+                "typical_foods",
+                "goals_events",
+                "challenges"
+            ]
+            try:
+                sections_completed = sections.index(current_section)
+            except ValueError:
+                sections_completed = 0
+
+            total_sections = len(sections)
 
             return {
                 "success": True,
                 "message": assistant_message,
                 "extracted_items": len(extracted_items),
                 "current_section": current_section,
-                "section_complete": section_complete,
-                "progress": progress,
+                "sections_completed": sections_completed,
+                "total_sections": total_sections,
+                "progress_percentage": progress_percentage,
                 "session_id": session_id
             }
 
