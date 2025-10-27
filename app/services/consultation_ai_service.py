@@ -1470,7 +1470,65 @@ IMPORTANT:
             Dict with session_id and initial message
         """
         try:
-            # Create session first
+            # Check for existing incomplete session first
+            existing_session = self.db.client.table("consultation_sessions")\
+                .select("*")\
+                .eq("user_id", user_id)\
+                .is_("completed_at", "null")\
+                .order("created_at", desc=True)\
+                .limit(1)\
+                .execute()
+
+            if existing_session.data:
+                # Resume existing session
+                session = existing_session.data[0]
+                session_id = session["id"]
+                current_section = session.get("current_section", "training_modalities")
+                progress_percentage = session.get("progress_percentage", 0)
+
+                logger.info(
+                    "resuming_existing_consultation",
+                    user_id=user_id[:8],
+                    session_id=session_id[:8],
+                    progress=progress_percentage
+                )
+
+                # Get conversation history to return
+                messages = await self._get_conversation_history(session_id)
+
+                # Return last assistant message as initial message
+                initial_message = "Welcome back! Let's continue where we left off."
+                for msg in reversed(messages):
+                    if msg["role"] == "assistant":
+                        initial_message = msg["content"]
+                        break
+
+                # Calculate sections completed and total
+                sections = [
+                    "training_modalities",
+                    "exercise_familiarity",
+                    "training_schedule",
+                    "meal_timing",
+                    "typical_foods",
+                    "goals_events",
+                    "challenges"
+                ]
+                try:
+                    sections_completed = sections.index(current_section)
+                except ValueError:
+                    sections_completed = 0
+
+                return {
+                    "success": True,
+                    "session_id": session_id,
+                    "message": initial_message,
+                    "current_section": current_section,
+                    "sections_completed": sections_completed,
+                    "total_sections": len(sections),
+                    "progress_percentage": progress_percentage
+                }
+
+            # No existing session - create new one
             session_data = {
                 "user_id": user_id,
                 "current_section": "training_modalities",
@@ -1536,7 +1594,9 @@ Let's start with your training. **What kind of workouts do you usually do?**"""
                 "session_id": session_id,
                 "message": initial_message,
                 "current_section": "training_modalities",
-                "progress": 0
+                "sections_completed": 0,
+                "total_sections": 7,
+                "progress_percentage": 0
             }
 
         except Exception as e:
