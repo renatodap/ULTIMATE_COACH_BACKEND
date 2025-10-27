@@ -172,6 +172,16 @@ class ConsultationAIService:
             # SECURITY: Sanitize assistant message
             assistant_message = self.security.validate_assistant_message(assistant_message)
 
+            # Ensure assistant message is not empty
+            if not assistant_message or not assistant_message.strip():
+                logger.error(
+                    "empty_assistant_message",
+                    session_id=session_id,
+                    user_id=user_id,
+                    stop_reason=response.stop_reason
+                )
+                assistant_message = "I'm processing your information. Let's continue with the next question."
+
             # Save messages to database
             await self._save_user_message(session_id, user_id, message)
             await self._save_assistant_message(
@@ -1254,10 +1264,20 @@ This section should feel like a deep conversation about their relationship with 
         for msg in history:
             # Only include user and assistant messages (skip system messages)
             if msg["role"] in ["user", "assistant"]:
-                messages.append({
-                    "role": msg["role"],
-                    "content": msg["content"]
-                })
+                # Skip messages with empty content (Claude API requires non-empty content)
+                content = msg.get("content", "")
+                if content and content.strip():
+                    messages.append({
+                        "role": msg["role"],
+                        "content": content
+                    })
+                else:
+                    logger.warning(
+                        "skipping_empty_message",
+                        role=msg["role"],
+                        message_id=msg.get("id"),
+                        session_id=msg.get("session_id")
+                    )
 
         return messages
 
