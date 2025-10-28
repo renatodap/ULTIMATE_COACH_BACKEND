@@ -7,6 +7,7 @@ Automated jobs for adaptive coaching system:
 - Grace period auto-apply (runs hourly)
 - Skipped item detection (runs daily at 11:59pm)
 - Notification cleanup (runs weekly on Sunday at 2am)
+- Weekly system prompt updates (runs weekly on Sunday at 3am)
 
 Uses APScheduler for scheduling and execution.
 """
@@ -23,6 +24,9 @@ from app.services.reassessment_service import reassessment_service
 from app.services.adjustment_approval_service import adjustment_approval_service
 from app.services.meal_matching_service import meal_matching_service
 from app.services.activity_matching_service import activity_matching_service
+from app.services.behavioral_tracker import get_behavioral_tracker
+from app.services.system_prompt_generator import get_system_prompt_generator
+from app.config.personalized_coaching import config as coaching_config
 
 logger = structlog.get_logger()
 
@@ -431,6 +435,192 @@ class BackgroundJobsService:
             )
 
     # ============================================================================
+    # Job 6: Weekly System Prompt Updates (3am Sunday)
+    # ============================================================================
+
+    async def run_weekly_prompt_updates(self):
+        """
+        Update personalized system prompts based on behavioral changes.
+
+        Flow:
+        1. Get all users with personalized prompts where last_prompt_update > 7 days ago
+        2. For each user:
+           - Calculate behavioral metrics (30-day window)
+           - Regenerate system prompt with updated behavioral data
+           - Increment prompt version
+           - Update last_prompt_update timestamp
+        3. Log results
+
+        This ensures coaching personas evolve with actual user behavior, not just
+        initial consultation data.
+        """
+        try:
+            logger.info("weekly_prompt_updates_job_started")
+
+            # Get users who need prompt updates (configurable days)
+            days_threshold = coaching_config.MIN_DAYS_BETWEEN_UPDATES
+            threshold_date = (datetime.utcnow() - timedelta(days=days_threshold)).isoformat()
+
+            result = (
+                self.db.client.table("profiles")
+                .select("id, conversational_profile, behavioral_data, system_prompt_version")
+                .not_.is_("coaching_system_prompt", "null")  # Only users with personalized prompts
+                .lt("last_prompt_update", threshold_date)
+                .eq("onboarding_completed", True)
+                .is_("deactivated_at", "null")
+                .execute()
+            )
+
+            users_needing_update = result.data
+
+            logger.info(
+                "users_needing_prompt_update",
+                count=len(users_needing_update)
+            )
+
+            success_count = 0
+            error_count = 0
+            updated_count = 0
+
+            # Get singleton services (initialized at startup)
+            behavioral_tracker = get_behavioral_tracker()
+            prompt_generator = get_system_prompt_generator()
+
+            for user in users_needing_update:
+                user_id = user["id"]
+
+                try:
+                    # Calculate behavioral metrics (configurable analysis window)
+                    behavioral_metrics = await behavioral_tracker.calculate_metrics(
+                        user_id=user_id,
+                        days=coaching_config.BEHAVIORAL_ANALYSIS_DAYS
+                    )
+
+                    # Check if behavior has changed significantly from stored data
+                    stored_behavioral_data = user.get("behavioral_data", {})
+                    conversational_profile = user.get("conversational_profile")
+
+                    # If no conversational profile, skip (user didn't complete consultation)
+                    if not conversational_profile:
+                        logger.debug(
+                            "skipping_prompt_update_no_consultation",
+                            user_id=user_id[:8]
+                        )
+                        continue
+
+                    # COST OPTIMIZATION: Only update if behavior changed significantly
+                    # All thresholds configurable via environment variables
+                    old_adherence = stored_behavioral_data.get("adherence_rate_last_30_days", 0)
+                    new_adherence = behavioral_metrics.get("adherence_rate_last_30_days", 0)
+
+                    old_logging_rate = stored_behavioral_data.get("logging_rate", 0)
+                    new_logging_rate = behavioral_metrics.get("logging_rate", 0)
+
+                    old_streak = stored_behavioral_data.get("meal_logging_streak_days", 0)
+                    new_streak = behavioral_metrics.get("meal_logging_streak_days", 0)
+
+                    # Calculate changes
+                    adherence_change = abs(new_adherence - old_adherence)
+                    logging_change = abs(new_logging_rate - old_logging_rate)
+                    streak_change = new_streak - old_streak
+
+                    # Use config helper to determine if update needed
+                    should_update = coaching_config.should_update_prompt(
+                        adherence_change=adherence_change,
+                        logging_change=logging_change,
+                        streak_change=streak_change
+                    )
+
+                    if not should_update:
+                        logger.info(
+                            "skipping_prompt_update_no_significant_change",
+                            user_id=user_id[:8],
+                            adherence_change=f"{adherence_change:.2%}",
+                            logging_change=f"{logging_change:.2%}",
+                            streak_change=new_streak - old_streak
+                        )
+
+                        # Update behavioral_data without regenerating prompt (save $0.05)
+                        self.db.client.table("profiles")\
+                            .update({
+                                "behavioral_data": behavioral_metrics,
+                                "last_prompt_update": datetime.utcnow().isoformat()
+                            })\
+                            .eq("id", user_id)\
+                            .execute()
+
+                        success_count += 1
+                        continue
+
+                    # Behavior changed significantly - regenerate prompt
+                    logger.info(
+                        "significant_behavior_change_detected",
+                        user_id=user_id[:8],
+                        adherence_change=f"{adherence_change:.2%}",
+                        logging_change=f"{logging_change:.2%}",
+                        streak_change=new_streak - old_streak
+                    )
+
+                    # Regenerate system prompt with updated behavioral data
+                    updated_prompt = await prompt_generator.update_prompt_from_behavior(
+                        user_id=user_id,
+                        conversational_profile=conversational_profile,
+                        current_behavioral_data=behavioral_metrics,
+                        previous_behavioral_data=stored_behavioral_data
+                    )
+
+                    # Update database with new prompt, incremented version, and timestamp
+                    current_version = user.get("system_prompt_version", 1)
+                    new_version = current_version + 1
+
+                    update_result = (
+                        self.db.client.table("profiles")
+                        .update({
+                            "coaching_system_prompt": updated_prompt,
+                            "behavioral_data": behavioral_metrics,
+                            "system_prompt_version": new_version,
+                            "last_prompt_update": datetime.utcnow().isoformat()
+                        })
+                        .eq("id", user_id)
+                        .execute()
+                    )
+
+                    updated_count += 1
+                    logger.info(
+                        "system_prompt_updated",
+                        user_id=user_id[:8],
+                        new_version=new_version,
+                        adherence_rate=behavioral_metrics.get("adherence_rate_last_30_days"),
+                        logging_streak=behavioral_metrics.get("meal_logging_streak_days")
+                    )
+
+                    success_count += 1
+
+                except Exception as e:
+                    error_count += 1
+                    logger.error(
+                        "prompt_update_failed_for_user",
+                        user_id=user_id[:8],
+                        error=str(e),
+                        exc_info=True
+                    )
+
+            logger.info(
+                "weekly_prompt_updates_job_completed",
+                total_users=len(users_needing_update),
+                success=success_count,
+                errors=error_count,
+                prompts_updated=updated_count
+            )
+
+        except Exception as e:
+            logger.error(
+                "weekly_prompt_updates_job_failed",
+                error=str(e),
+                exc_info=True
+            )
+
+    # ============================================================================
     # Scheduler Control
     # ============================================================================
 
@@ -480,6 +670,20 @@ class BackgroundJobsService:
             CronTrigger(day_of_week="sun", hour=2, minute=0),
             id="notification_cleanup",
             name="Notification Cleanup",
+            replace_existing=True
+        )
+
+        # Job 6: Weekly System Prompt Updates - Configurable schedule
+        schedule = coaching_config.get_prompt_update_schedule()
+        self.scheduler.add_job(
+            self.run_weekly_prompt_updates,
+            CronTrigger(
+                day_of_week=schedule["day_of_week"],
+                hour=schedule["hour"],
+                minute=schedule["minute"]
+            ),
+            id="weekly_prompt_updates",
+            name="Weekly System Prompt Updates",
             replace_existing=True
         )
 
