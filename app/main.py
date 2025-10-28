@@ -433,9 +433,11 @@ app.include_router(consultation.router, prefix="/api/v1", tags=["Consultation AI
 # DISABLED FOR WEEK 1 MVP - Re-enabling incrementally
 # ========================================================================
 # ✅ ENABLED: meals (nutrition logging - needed for coach tools)
-# ⏳ PENDING: activities, quick_meals, body_metrics (testing one by one)
+# ✅ ENABLED: activities (activity tracking - full CRUD ready)
+# ⏳ PENDING: quick_meals, body_metrics (testing one by one)
 # ========================================================================
-# from app.api.v1 import training_modalities, activities, quick_meals
+from app.api.v1 import activities
+# from app.api.v1 import training_modalities, quick_meals
 # from app.api.v1 import templates, body_metrics, dashboard, exercise_sets
 # from app.api.v1 import wearables, planning, programs, calendar
 # from app.api.v1.planlogs import router as planlogs_router
@@ -443,7 +445,7 @@ app.include_router(consultation.router, prefix="/api/v1", tags=["Consultation AI
 # app.include_router(training_modalities.router, prefix="/api/v1/training-modalities", tags=["Training Modalities"])
 # app.include_router(dashboard.router, prefix="/api/v1", tags=["Dashboard"])
 # app.include_router(quick_meals.router, prefix="/api/v1", tags=["Nutrition - Quick Meals"])
-# app.include_router(activities.router, prefix="/api/v1", tags=["Activities"])
+app.include_router(activities.router, prefix="/api/v1", tags=["Activities"])
 # app.include_router(templates.router, prefix="/api/v1", tags=["Activity Templates"])
 # app.include_router(body_metrics.router, prefix="/api/v1", tags=["Body Metrics"])
 # app.include_router(exercise_sets.router, prefix="/api/v1", tags=["Exercise Sets"])
