@@ -29,6 +29,11 @@ from app.services.tools.recent_meals_tool import RecentMealsTool
 from app.services.tools.recent_activities_tool import RecentActivitiesTool
 from app.services.tools.body_measurements_tool import BodyMeasurementsTool
 from app.services.tools.progress_trend_tool import ProgressTrendTool
+from app.services.tools.training_volume_tool import TrainingVolumeTool
+from app.services.tools.activity_calories_tool import ActivityCaloriesTool
+from app.services.tools.meal_nutrition_calculator_tool import MealNutritionCalculatorTool
+from app.services.tools.meal_adjustments_tool import MealAdjustmentsTool
+from app.services.tools.quick_meal_log_tool import QuickMealLogTool
 
 __all__ = [
     "BaseTool",
@@ -39,6 +44,11 @@ __all__ = [
     "RecentActivitiesTool",
     "BodyMeasurementsTool",
     "ProgressTrendTool",
+    "TrainingVolumeTool",
+    "ActivityCaloriesTool",
+    "MealNutritionCalculatorTool",
+    "MealAdjustmentsTool",
+    "QuickMealLogTool",
     "create_tool_registry",
 ]
 
@@ -69,24 +79,29 @@ def create_tool_registry(supabase_client, cache_service=None) -> ToolRegistry:
         # User & Profile
         UserProfileTool(supabase_client, cache_service),
 
-        # Nutrition
+        # Nutrition - Read Operations
         DailyNutritionSummaryTool(supabase_client, cache_service),
         RecentMealsTool(supabase_client, cache_service),
+        MealNutritionCalculatorTool(supabase_client, cache_service),
+        MealAdjustmentsTool(supabase_client, cache_service),
 
-        # Activity & Progress
+        # Nutrition - Write Operations
+        QuickMealLogTool(supabase_client, cache_service),
+
+        # Activity & Progress - Read Operations
         RecentActivitiesTool(supabase_client, cache_service),
+        TrainingVolumeTool(supabase_client, cache_service),
+        ActivityCaloriesTool(supabase_client, cache_service),
+
+        # Body Metrics
         BodyMeasurementsTool(supabase_client, cache_service),
         ProgressTrendTool(supabase_client, cache_service),
 
         # TODO: Remaining tools to extract from original tool_service.py:
-        # TrainingVolumeTool(supabase_client, cache_service),
         # FoodSearchTool(supabase_client, cache_service),
-        # MealNutritionCalculatorTool(supabase_client, cache_service),
-        # MealAdjustmentsTool(supabase_client, cache_service),
-        # ActivityCaloriesTool(supabase_client, cache_service),
-        # QuickMealLogTool(supabase_client, cache_service),
         # SemanticSearchTool(supabase_client, cache_service),
-        # UpdateMealTool, DeleteMealTool, etc. (8 more action tools)
+        # UpdateMealTool, DeleteMealTool, CopyMealTool (8 more action tools)
+        # CreateQuickMealTool, DeleteQuickMealTool, ListQuickMealsTool
     ]
 
     registry.register_all(tools)

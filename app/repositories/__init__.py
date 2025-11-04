@@ -28,9 +28,13 @@ Usage:
 from app.repositories.base_repository import BaseRepository
 from app.repositories.user_repository import UserRepository
 from app.repositories.meal_repository import MealRepository
+from app.repositories.activity_repository import ActivityRepository
+from app.repositories.body_metrics_repository import BodyMetricsRepository
 
 __all__ = [
     "BaseRepository",
     "UserRepository",
     "MealRepository",
+    "ActivityRepository",
+    "BodyMetricsRepository",
 ]
