@@ -52,14 +52,19 @@ registry = create_tool_registry(supabase, cache)
 result = await registry.execute("get_user_profile", user_id, params)
 ```
 
-**Extracted Tools (7 of 20):**
+**Extracted Tools (12 of 20):**
 1. UserProfileTool - User profile with caching
 2. DailyNutritionSummaryTool - Daily nutrition totals
 3. RecentMealsTool - Meal history
 4. RecentActivitiesTool - Activity history
 5. BodyMeasurementsTool - Body metrics
 6. ProgressTrendTool - Trend analysis
-7. More tools ready to extract (guide provided)
+7. TrainingVolumeTool - Strength training volume analysis
+8. ActivityCaloriesTool - Calorie estimation using METs
+9. MealNutritionCalculatorTool - Calculate meal nutrition totals
+10. MealAdjustmentsTool - Suggest macro adjustments
+11. QuickMealLogTool - Log meals with AI estimates (write operation)
+12. More tools ready to extract (8 remaining)
 
 ---
 
@@ -70,9 +75,9 @@ result = await registry.execute("get_user_profile", user_id, params)
 **Structure:**
 ```
 app/services/coach/
-├── language_detector.py       # Language detection (225 lines)
+├── language_detector.py       # Language detection (225 lines) ✅
+├── conversation_manager.py     # Conversation lifecycle (350 lines) ✅
 ├── system_prompt_builder.py   # System prompts (TODO)
-├── conversation_manager.py     # Conversations (TODO)
 ├── log_handler.py              # Log mode (TODO)
 ├── chat_handler.py             # Chat mode (TODO)
 └── unified_coach_router.py     # Coordination (TODO)
@@ -101,11 +106,11 @@ language = await detector.detect(user_id, message)
 **Structure:**
 ```
 app/repositories/
-├── base_repository.py         # Abstract base with retry logic
-├── user_repository.py          # User/profile operations
-├── meal_repository.py          # Meal operations
-├── activity_repository.py      # Activity operations (TODO)
-├── body_metrics_repository.py  # Metrics operations (TODO)
+├── base_repository.py         # Abstract base with retry logic ✅
+├── user_repository.py          # User/profile operations ✅
+├── meal_repository.py          # Meal operations ✅
+├── activity_repository.py      # Activity operations (280 lines) ✅
+├── body_metrics_repository.py  # Metrics operations (250 lines) ✅
 └── __init__.py                 # Exports
 ```
 
@@ -467,17 +472,17 @@ Improvements:
 ## Success Metrics
 
 ### Goals (9-Phase Plan)
-- [x] Phase 1: Tool Plugin Architecture (30% complete)
-- [x] Phase 2: Coach Service Split (15% complete)
+- [x] Phase 1: Tool Plugin Architecture (60% complete - 12 of 20 tools)
+- [x] Phase 2: Coach Service Split (33% complete - 2 of 6 services)
 - [ ] Phase 3: Nutrition Service Layers (0% complete)
-- [x] Phase 4: Repository Pattern (40% complete)
+- [x] Phase 4: Repository Pattern (71% complete - 5 of 7 repositories)
 - [ ] Phase 5: Comprehensive Tests (25% complete)
 - [x] Phase 6: Error Handling (100% complete)
 - [x] Phase 7: Query Patterns (100% complete)
 - [x] Phase 8: Logging Improvements (100% complete)
-- [ ] Phase 9: Documentation (80% complete)
+- [ ] Phase 9: Documentation (85% complete)
 
-**Overall Progress:** 55% of total refactoring plan complete
+**Overall Progress:** 63% of total refactoring plan complete
 
 ---
 
