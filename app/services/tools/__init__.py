@@ -34,6 +34,7 @@ from app.services.tools.activity_calories_tool import ActivityCaloriesTool
 from app.services.tools.meal_nutrition_calculator_tool import MealNutritionCalculatorTool
 from app.services.tools.meal_adjustments_tool import MealAdjustmentsTool
 from app.services.tools.quick_meal_log_tool import QuickMealLogTool
+from app.services.tools.food_search_tool import FoodSearchTool
 
 __all__ = [
     "BaseTool",
@@ -49,6 +50,7 @@ __all__ = [
     "MealNutritionCalculatorTool",
     "MealAdjustmentsTool",
     "QuickMealLogTool",
+    "FoodSearchTool",
     "create_tool_registry",
 ]
 
@@ -84,6 +86,7 @@ def create_tool_registry(supabase_client, cache_service=None) -> ToolRegistry:
         RecentMealsTool(supabase_client, cache_service),
         MealNutritionCalculatorTool(supabase_client, cache_service),
         MealAdjustmentsTool(supabase_client, cache_service),
+        FoodSearchTool(supabase_client, cache_service),
 
         # Nutrition - Write Operations
         QuickMealLogTool(supabase_client, cache_service),
@@ -97,10 +100,9 @@ def create_tool_registry(supabase_client, cache_service=None) -> ToolRegistry:
         BodyMeasurementsTool(supabase_client, cache_service),
         ProgressTrendTool(supabase_client, cache_service),
 
-        # TODO: Remaining tools to extract from original tool_service.py:
-        # FoodSearchTool(supabase_client, cache_service),
-        # SemanticSearchTool(supabase_client, cache_service),
-        # UpdateMealTool, DeleteMealTool, CopyMealTool (8 more action tools)
+        # TODO: Remaining tools to extract from original tool_service.py (7 remaining):
+        # UpdateMealTool, DeleteMealTool, CopyMealTool (require helper method extraction)
+        # UpdateMealItemTool (require helper method extraction)
         # CreateQuickMealTool, DeleteQuickMealTool, ListQuickMealsTool
     ]
 
