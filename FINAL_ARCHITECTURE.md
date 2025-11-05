@@ -77,7 +77,7 @@ result = await registry.execute("get_user_profile", user_id, params)
 app/services/coach/
 ├── language_detector.py       # Language detection (225 lines) ✅
 ├── conversation_manager.py     # Conversation lifecycle (350 lines) ✅
-├── system_prompt_builder.py   # System prompts (TODO)
+├── system_prompt_builder.py   # System prompt building (350 lines) ✅
 ├── log_handler.py              # Log mode (TODO)
 ├── chat_handler.py             # Chat mode (TODO)
 └── unified_coach_router.py     # Coordination (TODO)
@@ -472,17 +472,17 @@ Improvements:
 ## Success Metrics
 
 ### Goals (9-Phase Plan)
-- [x] Phase 1: Tool Plugin Architecture (60% complete - 12 of 20 tools)
-- [x] Phase 2: Coach Service Split (33% complete - 2 of 6 services)
+- [x] Phase 1: Tool Plugin Architecture (65% complete - 13 of 20 tools)
+- [x] Phase 2: Coach Service Split (50% complete - 3 of 6 services)
 - [ ] Phase 3: Nutrition Service Layers (0% complete)
 - [x] Phase 4: Repository Pattern (71% complete - 5 of 7 repositories)
 - [ ] Phase 5: Comprehensive Tests (25% complete)
 - [x] Phase 6: Error Handling (100% complete)
 - [x] Phase 7: Query Patterns (100% complete)
 - [x] Phase 8: Logging Improvements (100% complete)
-- [ ] Phase 9: Documentation (85% complete)
+- [ ] Phase 9: Documentation (90% complete)
 
-**Overall Progress:** 63% of total refactoring plan complete
+**Overall Progress:** 66% of total refactoring plan complete
 
 ---
 
